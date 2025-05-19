@@ -454,8 +454,27 @@ implementation_checklist:
       - "🔄 노드 렌더링 가상화 (많은 노드 처리)"
       - "🔄 검색 성능 개선 (인덱싱)"
 
-  ## ✅ 최근 해결된 문제들
-  recently_fixed:
+  ## ✅ 최근 추가된 새 기능
+  new_features:
+    vrma_animation_support:
+      - "✅ VRMA 애니메이션 파일 지원 추가"
+        description: "VRM 모델에 VRMA 애니메이션을 드래그 앤 드롭으로 적용 가능"
+        implementation:
+          - "VRMADropZone 컴포넌트: VRMA 파일 업로드 UI"
+          - "vrma-utils.ts: VRMA 로딩 및 변환 유틸리티"
+          - "ModelViewer에 VRM 콜백 추가"
+          - "@pixiv/three-vrm-animation 라이브러리 통합"
+        technical_details:
+          - "VRMA 파일을 VRM 모델에 맞는 AnimationClip으로 변환"
+          - "VRM humanoid 본 호환성 검사"
+          - "기존 애니메이션과 함께 새 애니메이션 추가"
+          - "GLB 내보내기 시 VRMA 애니메이션도 포함"
+        usage:
+          - "1. VRM 파일 로드"
+          - "2. VRMA 파일을 드롭존에 드래그 앤 드롭"
+          - "3. '애니메이션 적용' 버튼 클릭"
+          - "4. 애니메이션 컨트롤에서 새 애니메이션 확인 가능"
+        date: "2025-05-20"
     glb_export_issues:
       - "✅ GLB 파일 크기 축소 문제 해결"
         description: "원본 대비 50% 축소되던 문제 완전 해결"
@@ -479,9 +498,8 @@ implementation_checklist:
       - "✅ 텍스처 품질 보존"
         description: "내보내기 시 텍스처 품질이 저하되던 문제 해결"
         solution: "forcePowerOfTwoTextures: false, maxTextureSize 설정"
-        date: "2025-05-20"
-
-  ## 🔲 미구현 기능들 (우선순위별)
+  ## ✅ 최근 해결된 문제들
+  recently_fixed:
   not_implemented:
     
     ### 높은 우선순위 (필수)

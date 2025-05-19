@@ -47,70 +47,97 @@ export function exportModelToGLB(scene: THREE.Scene, fileName: string, animation
   
   // 모델 객체들을 **구조 그대로** 복사
   for (const modelObject of modelObjects) {
-    // 완전한 딥클론 생성 (자식, 애니메이션, 모든 속성 포함)
-    const clonedModel = modelObject.clone(true);
-    
-    // **중요**: 원본 위치, 회전, 스케일을 그대로 복사
-    clonedModel.position.copy(modelObject.position);
-    clonedModel.rotation.copy(modelObject.rotation);
-    clonedModel.scale.copy(modelObject.scale);
-    clonedModel.matrixAutoUpdate = modelObject.matrixAutoUpdate;
-    clonedModel.matrixWorldNeedsUpdate = true;
-    
-    // 모든 자식 객체들의 변환도 재귀적으로 복사
-    function copyTransforms(original: THREE.Object3D, cloned: THREE.Object3D) {
-      cloned.position.copy(original.position);
-      cloned.rotation.copy(original.rotation);
-      cloned.scale.copy(original.scale);
-      cloned.matrix.copy(original.matrix);
-      cloned.matrixAutoUpdate = original.matrixAutoUpdate;
+    try {
+      console.log(`모델 복사 시작: ${modelObject.type} "${modelObject.name}"`);
       
-      // 사용자 데이터도 복사
-      cloned.userData = JSON.parse(JSON.stringify(original.userData));
-      
-      // 자식들도 재귀적으로 처리
-      for (let i = 0; i < original.children.length && i < cloned.children.length; i++) {
-        copyTransforms(original.children[i], cloned.children[i]);
-      }
-    }
-    
-    copyTransforms(modelObject, clonedModel);
-    
-    // 메시의 스킨 정보 복사 (VRM 모델 지원)
-    function copySkinnedMeshes(original: THREE.Object3D, cloned: THREE.Object3D) {
-      if (original instanceof THREE.SkinnedMesh && cloned instanceof THREE.SkinnedMesh) {
-        // 원본의 스켈레톤 정보를 복사
-        if (original.skeleton) {
-          const originalBones = original.skeleton.bones;
-          const clonedBones: THREE.Bone[] = [];
+      // VRM 모델의 특수 속성을 안전하게 처리하는 복제 함수
+      function safeCloneObject(original: THREE.Object3D): THREE.Object3D {
+        let cloned: THREE.Object3D;
+        
+        // 메시 타입별 안전한 복제
+        if (original instanceof THREE.SkinnedMesh) {
+          cloned = new THREE.SkinnedMesh(original.geometry, original.material);
           
-          // 복제된 오브젝트에서 대응하는 본들 찾기
-          for (const originalBone of originalBones) {
-            const clonedBone = clonedModel.getObjectByName(originalBone.name) as THREE.Bone;
-            if (clonedBone instanceof THREE.Bone) {
-              clonedBones.push(clonedBone);
-            }
+          // 스킨 관련 속성 복제
+          if (original.skeleton) {
+            (cloned as THREE.SkinnedMesh).skeleton = original.skeleton.clone();
+            (cloned as THREE.SkinnedMesh).bindMatrix.copy(original.bindMatrix);
+            (cloned as THREE.SkinnedMesh).bindMatrixInverse.copy(original.bindMatrixInverse);
           }
-          
-          if (clonedBones.length === originalBones.length) {
-            // 새 스켈레톤 생성 및 바인딩
-            cloned.skeleton = new THREE.Skeleton(clonedBones, original.skeleton.boneInverses);
-            cloned.bind(cloned.skeleton, original.bindMatrix);
+        } else if (original instanceof THREE.Mesh) {
+          cloned = new THREE.Mesh(original.geometry, original.material);
+        } else if (original instanceof THREE.Bone) {
+          cloned = new THREE.Bone();
+        } else if (original instanceof THREE.Group) {
+          cloned = new THREE.Group();
+        } else {
+          // 기본 Object3D 복제 시도
+          try {
+            cloned = original.clone(false); // 자식 제외하고 복제
+          } catch (e) {
+            console.warn(`${original.type} 복제 실패, 새 Object3D 생성`, e);
+            cloned = new THREE.Object3D();
           }
         }
+        
+        // 기본 속성 복사 (VRM 특수 속성 제외)
+        cloned.name = original.name;
+        cloned.type = original.type;
+        cloned.position.copy(original.position);
+        cloned.rotation.copy(original.rotation);
+        cloned.scale.copy(original.scale);
+        cloned.visible = original.visible;
+        cloned.castShadow = original.castShadow;
+        cloned.receiveShadow = original.receiveShadow;
+        cloned.frustumCulled = original.frustumCulled;
+        cloned.renderOrder = original.renderOrder;
+        
+        // 매트릭스 복사
+        cloned.matrix.copy(original.matrix);
+        cloned.matrixWorld.copy(original.matrixWorld);
+        cloned.matrixAutoUpdate = original.matrixAutoUpdate;
+        cloned.matrixWorldNeedsUpdate = true;
+        
+        // userData 안전하게 복사 (VRM 특수 속성 필터링)
+        if (original.userData) {
+          const safeUserData: any = {};
+          for (const key in original.userData) {
+            // VRM 관련 특수 속성들 스킵
+            if (key.includes('vrm') || key.includes('VRM') || 
+                key === 'yaw' || key === 'pitch' || key === 'roll' ||
+                typeof original.userData[key] === 'function') {
+              continue;
+            }
+            try {
+              safeUserData[key] = JSON.parse(JSON.stringify(original.userData[key]));
+            } catch (e) {
+              // 복사할 수 없는 속성은 스킵
+              console.warn(`userData.${key} 복사 스킵:`, e);
+            }
+          }
+          cloned.userData = safeUserData;
+        }
+        
+        // 자식 객체들 재귀적으로 복제
+        for (const child of original.children) {
+          const clonedChild = safeCloneObject(child);
+          cloned.add(clonedChild);
+        }
+        
+        return cloned;
       }
       
-      // 자식들도 재귀적으로 처리
-      for (let i = 0; i < original.children.length && i < cloned.children.length; i++) {
-        copySkinnedMeshes(original.children[i], cloned.children[i]);
-      }
+      // 안전한 복제 실행
+      const clonedModel = safeCloneObject(modelObject);
+      
+      // 내보내기 씬에 추가
+      exportScene.add(clonedModel);
+      console.log(`✅ 모델 "${modelObject.name}" 안전하게 복사 완료`);
+      
+    } catch (error) {
+      console.error(`❌ 모델 "${modelObject.name}" 복사 실패:`, error);
+      throw new Error(`모델 복사 중 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     }
-    
-    copySkinnedMeshes(modelObject, clonedModel);
-    
-    // 내보내기 씬에 추가
-    exportScene.add(clonedModel);
-    console.log(`모델 "${modelObject.name}" 구조 그대로 복사 완료`);
   }
   
   // 애니메이션 처리 (Three.js 객체를 그대로 복사)

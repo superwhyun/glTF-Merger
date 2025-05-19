@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader"
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm"
+import { VRMLoaderPlugin, VRMUtils, VRM } from "@pixiv/three-vrm"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, Play, Pause, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -15,14 +15,15 @@ interface ModelViewerProps {
   modelStructure: any
   onSceneReady?: (scene: THREE.Scene) => void
   onAnimationsLoaded?: (animations: THREE.AnimationClip[]) => void
+  onVRMLoaded?: (vrm: VRM | null) => void
 }
 
-export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoaded }: ModelViewerProps) {
+export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoaded, onVRMLoaded }: ModelViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [animations, setAnimations] = useState<THREE.AnimationClip[]>([])
-  const [currentAnimation, setCurrentAnimation] = useState<string | null>(null)
+  const [currentAnimationIndex, setCurrentAnimationIndex] = useState<number>(-1)
   const [animationProgress, setAnimationProgress] = useState(0)
   const [hasAnimations, setHasAnimations] = useState(false)
   const [isModelLoaded, setIsModelLoaded] = useState(false)
@@ -36,6 +37,8 @@ export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoa
   const modelRef = useRef<THREE.Object3D | null>(null)
   const animationsRef = useRef<THREE.AnimationClip[]>([])
   const currentActionRef = useRef<THREE.AnimationAction | null>(null)
+  // VRM 참조 추가
+  const vrmRef = useRef<VRM | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const urlRef = useRef<string>(url)
 
@@ -62,7 +65,7 @@ useEffect(() => {
       const mixer = new THREE.AnimationMixer(modelRef.current)
       mixerRef.current = mixer
       // 첫 번째 애니메이션 자동 선택 및 재생
-      setCurrentAnimation(modelStructure.animations[0].name)
+      setCurrentAnimationIndex(0)
       const action = mixer.clipAction(modelStructure.animations[0])
       action.reset()
       action.setLoop(THREE.LoopRepeat, Infinity)
@@ -83,7 +86,7 @@ useEffect(() => {
   // }, [modelStructure])
 
   // 모델 로드 함수
-  const loadModel = (modelUrl: string) => {
+  const loadModel = async (modelUrl: string) => {
     if (!sceneRef.current) {
       console.warn("씬이 초기화되지 않았습니다.")
       return
@@ -155,7 +158,7 @@ useEffect(() => {
 
     // 애니메이션 상태 초기화
     setAnimations([])
-    setCurrentAnimation(null)
+    setCurrentAnimationIndex(-1)
     setIsPlaying(false)
     setHasAnimations(false)
     setAnimationProgress(0)
@@ -167,6 +170,15 @@ useEffect(() => {
     // 모델 로더 설정
     const loader = new GLTFLoader()
     loader.register((parser: any) => new VRMLoaderPlugin(parser))
+    
+    // VRM 애니메이션 플러그인을 동적으로 로드
+    try {
+      const VRMAnimationModule = await import("@pixiv/three-vrm-animation")
+      loader.register((parser: any) => new VRMAnimationModule.VRMAnimationLoaderPlugin(parser))
+      console.log("VRM 애니메이션 플러그인 로드됨")
+    } catch (error) {
+      console.warn("VRM 애니메이션 플러그인을 로드할 수 없습니다:", error)
+    }
 
     console.log(`모델 로드 시작: ${modelUrl}`)
 
@@ -184,10 +196,24 @@ useEffect(() => {
           const vrm = gltf.userData.vrm
           VRMUtils.removeUnnecessaryJoints(vrm.scene)
           model = vrm.scene
+          
+          // VRM 참조 저장
+          vrmRef.current = vrm
+          
+          // VRM 로드 콜백 호출
+          if (onVRMLoaded) {
+            onVRMLoaded(vrm)
+          }
         } else {
           // 일반 GLB 모델인 경우
           console.log("일반 GLB 모델 감지됨")
           model = gltf.scene
+          
+          // VRM이 아닌 경우 null로 설정
+          vrmRef.current = null
+          if (onVRMLoaded) {
+            onVRMLoaded(null)
+          }
         }
 
         // 모델 참조 저장 (내보내기에 사용됨)
@@ -268,7 +294,7 @@ useEffect(() => {
           mixerRef.current = mixer
 
           // 첫 번째 애니메이션 자동 선택
-          setCurrentAnimation(anims[0].name)
+          setCurrentAnimationIndex(0)
 
           // 첫 번째 애니메이션 액션 생성 및 설정
           const action = mixer.clipAction(anims[0])
@@ -410,6 +436,11 @@ useEffect(() => {
         }
       }
 
+      // VRM 업데이트 (필요한 경우)
+      if (vrmRef.current) {
+        vrmRef.current.update(clockRef.current?.getDelta() || 0)
+      }
+
       controls.update()
       renderer.render(scene, camera)
     }
@@ -500,20 +531,22 @@ useEffect(() => {
 
   // 애니메이션 변경 처리
   useEffect(() => {
-    if (!mixerRef.current || !currentAnimation || !hasAnimations) return
+    if (!mixerRef.current || currentAnimationIndex < 0 || !hasAnimations) return
 
     const currentIsPlaying = isPlayingRef.current
-    console.log(`애니메이션 변경: ${currentAnimation}, 현재 재생 상태: ${currentIsPlaying}`)
+    console.log(`애니메이션 변경: 인덱스 ${currentAnimationIndex}, 현재 재생 상태: ${currentIsPlaying}`)
 
     // 현재 실행 중인 애니메이션 정지
     if (currentActionRef.current) {
       currentActionRef.current.stop()
     }
 
-    // 선택한 애니메이션 찾기
-    const clip = animationsRef.current.find((anim: THREE.AnimationClip) => anim.name === currentAnimation)
+    // 선택한 애니메이션 가져오기
+    const clip = animationsRef.current[currentAnimationIndex]
     if (!clip) {
-      console.warn(`애니메이션 '${currentAnimation}'을 찾을 수 없습니다.`)
+      console.warn(`애니메이션 인덱스 ${currentAnimationIndex}을 찾을 수 없습니다.`)
+      // 애니메이션 목록 로그 출력
+      console.log("사용 가능한 애니메이션 목록:", animationsRef.current.map((a, i) => `${i}: ${a.name}`))
       return
     }
 
@@ -541,7 +574,7 @@ useEffect(() => {
     // 상태 동기화
     animationProgressRef.current = 0
     setAnimationProgress(0) // 진행률 초기화
-  }, [currentAnimation, hasAnimations]) // isPlaying 의존성 제거하여 무한 루프 방지
+  }, [currentAnimationIndex, hasAnimations]) // isPlaying 의존성 제거하여 무한 루프 방지
 
   // 재생/일시정지 토글
   const togglePlay = () => {
@@ -669,7 +702,7 @@ useEffect(() => {
                   size="icon"
                   className="h-8 w-8"
                   onClick={togglePlay}
-                  disabled={!currentAnimation}
+                  disabled={currentAnimationIndex < 0}
                 >
                   {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                 </Button>
@@ -679,24 +712,24 @@ useEffect(() => {
                   size="icon"
                   className="h-8 w-8"
                   onClick={resetAnimation}
-                  disabled={!currentAnimation}
+                  disabled={currentAnimationIndex < 0}
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
 
                 <select
-                  value={currentAnimation || ""}
+                  value={currentAnimationIndex}
                   onChange={(e) => {
-                    const value = e.target.value
-                    console.log(`애니메이션 선택: ${value}`)
-                    setCurrentAnimation(value)
+                    const index = parseInt(e.target.value)
+                    console.log(`애니메이션 선택: 인덱스 ${index}`)
+                    setCurrentAnimationIndex(index)
                   }}
                   className="h-8 flex-grow px-2 border border-gray-300 rounded text-sm bg-white"
                 >
-                  <option value="">애니메이션 선택</option>
-                  {animations.map((anim) => (
-                    <option key={anim.name} value={anim.name}>
-                      {anim.name}
+                  <option value={-1}>애니메이션 선택</option>
+                  {animations.map((anim, index) => (
+                    <option key={`${anim.name}-${index}`} value={index}>
+                      {anim.name} {animations.filter(a => a.name === anim.name).length > 1 ? `(${index + 1})` : ''}
                     </option>
                   ))}
                 </select>

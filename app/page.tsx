@@ -10,10 +10,13 @@ import { AlertCircle, Undo2, Redo2 } from "lucide-react"
 
 // 상단에 import 추가
 import { createPasteResult, deleteNodeFromStructure } from "@/lib/model-utils"
+import { loadVRMAAnimation, createAnimationClipFromVRMA, isVRMACompatible } from "@/lib/vrma-utils"
 import { Button } from "@/components/ui/button"
 import { HistoryManager } from "@/lib/history-manager"
 import { ModelDownloadButton } from "@/components/model-download-button"
+import { VRMADropZone } from "@/components/vrma-drop-zone"
 import * as THREE from "three"
+import type { VRM } from "@pixiv/three-vrm"
 
 // 간단한 toast 대체 함수
 const showMessage = (title: string, description: string, type: "success" | "error" = "success") => {
@@ -67,6 +70,16 @@ export default function Home() {
   // 씬 참조 추가
   const leftSceneRef = useRef<THREE.Scene | null>(null)
   const rightSceneRef = useRef<THREE.Scene | null>(null)
+
+  // VRM 참조 상태 추가
+  const [leftVRM, setLeftVRM] = useState<VRM | null>(null)
+  const [rightVRM, setRightVRM] = useState<VRM | null>(null)
+
+  // VRMA 애니메이션 상태 추가
+  const [leftVRMAFile, setLeftVRMAFile] = useState<File | null>(null)
+  const [rightVRMAFile, setRightVRMAFile] = useState<File | null>(null)
+  const [leftVRMAName, setLeftVRMAName] = useState<string | null>(null)
+  const [rightVRMAName, setRightVRMAName] = useState<string | null>(null)
 
   // Scene 상태 (리렌더링 트리거용)
   const [leftScene, setLeftScene] = useState<THREE.Scene | null>(null)
@@ -220,6 +233,141 @@ export default function Home() {
     }))
   }, [])
 
+  // VRM 로드 핸들러들
+  const handleLeftVRMLoaded = useCallback((vrm: VRM | null) => {
+    setLeftVRM(vrm)
+    console.log("왼쪽 VRM 로드됨:", vrm ? "VRM 모델" : "일반 모델")
+  }, [])
+
+  const handleRightVRMLoaded = useCallback((vrm: VRM | null) => {
+    setRightVRM(vrm)
+    console.log("오른쪽 VRM 로드됨:", vrm ? "VRM 모델" : "일반 모델")
+  }, [])
+
+  // VRMA 애니메이션 로드 핸들러들
+  const handleLeftVRMALoaded = useCallback((file: File, animationName: string) => {
+    console.log("🎬 handleLeftVRMALoaded 호출됨", { fileName: file.name, animationName })
+    setLeftVRMAFile(file)
+    setLeftVRMAName(animationName)
+    console.log("✅ 왼쪽 VRMA 상태 업데이트 완료")
+  }, [])
+
+  const handleRightVRMALoaded = useCallback((file: File, animationName: string) => {
+    console.log("🎬 handleRightVRMALoaded 호출됨", { fileName: file.name, animationName })
+    setRightVRMAFile(file)
+    setRightVRMAName(animationName)
+    console.log("✅ 오른쪽 VRMA 상태 업데이트 완료")
+  }, [])
+
+  // VRMA 애니메이션 적용 핸들러들
+  const handleLeftVRMAApply = useCallback(async () => {
+    console.log("🎬 handleLeftVRMAApply 시작")
+    console.log("VRM 상태:", leftVRM ? "로드됨" : "없음")
+    console.log("VRMA 파일 상태:", leftVRMAFile ? leftVRMAFile.name : "없음")
+    
+    if (!leftVRM || !leftVRMAFile) {
+      console.error("❌ 필수 데이터 누락", { vrm: !!leftVRM, vrmaFile: !!leftVRMAFile })
+      showMessage("애니메이션 적용 실패", "VRM 모델과 VRMA 파일이 모두 필요합니다.", "error")
+      return
+    }
+
+    console.log("🔍 VRM 호환성 검사 시작...")
+    if (!isVRMACompatible(leftVRM)) {
+      console.error("❌ VRM 호환성 실패")
+      showMessage("호환성 오류", "이 VRM 모델은 VRMA 애니메이션과 호환되지 않습니다.", "error")
+      return
+    }
+    console.log("✅ VRM 호환성 검사 통과")
+
+    try {
+      console.log("🎬 VRMA 애니메이션 로드 시작...")
+      const vrmaAnimation = await loadVRMAAnimation(leftVRMAFile)
+      console.log("✅ VRMA 애니메이션 로드 완료:", vrmaAnimation)
+      
+      if (vrmaAnimation) {
+        console.log("🔧 AnimationClip 생성 시작...")
+        const animationClip = await createAnimationClipFromVRMA(vrmaAnimation, leftVRM)
+        console.log("AnimationClip 결과:", animationClip)
+        
+        if (animationClip) {
+          console.log("✅ AnimationClip 생성 성공, 모델 구조 업데이트 중...")
+          // 모델 구조에 새 애니메이션 추가
+          setLeftModel(prev => {
+            const currentAnimations = prev.structure?.animations || []
+            const newStructure = {
+              ...prev,
+              structure: {
+                ...prev.structure,
+                animations: Array.isArray(currentAnimations) 
+                  ? [...currentAnimations, animationClip]
+                  : [animationClip]
+              }
+            }
+            console.log("📊 업데이트된 구조:", newStructure)
+            return newStructure
+          })
+          
+          showMessage("애니메이션 적용 성공", `${leftVRMAName} 애니메이션이 적용되었습니다.`)
+          console.log("🎉 왼쪽 VRMA 적용 완료!")
+        } else {
+          console.error("❌ AnimationClip 생성 실패")
+          showMessage("애니메이션 적용 실패", "AnimationClip 생성에 실패했습니다.", "error")
+        }
+      } else {
+        console.error("❌ vrmaAnimation이 null/undefined")
+        showMessage("애니메이션 적용 실패", "VRMA 애니메이션 로드 결과가 비어있습니다.", "error")
+      }
+    } catch (error) {
+      console.error("❌ VRMA 적용 전체 오류:", error)
+      console.error("에러 스택:", error instanceof Error ? error.stack : "No stack")
+      showMessage("애니메이션 적용 실패", error instanceof Error ? error.message : "알 수 없는 오류", "error")
+    }
+  }, [leftVRM, leftVRMAFile, leftVRMAName])
+
+  const handleRightVRMAApply = useCallback(async () => {
+    if (!rightVRM || !rightVRMAFile) {
+      showMessage("애니메이션 적용 실패", "VRM 모델과 VRMA 파일이 모두 필요합니다.", "error")
+      return
+    }
+
+    if (!isVRMACompatible(rightVRM)) {
+      showMessage("호환성 오류", "이 VRM 모델은 VRMA 애니메이션과 호환되지 않습니다.", "error")
+      return
+    }
+
+    try {
+      console.log("오른쪽 VRMA 애니메이션 적용 중...")
+      const vrmaAnimation = await loadVRMAAnimation(rightVRMAFile)
+      
+      if (vrmaAnimation) {
+        const animationClip = await createAnimationClipFromVRMA(vrmaAnimation, rightVRM)
+        
+        if (animationClip) {
+          // 모델 구조에 새 애니메이션 추가
+          setRightModel(prev => {
+            const currentAnimations = prev.structure?.animations || []
+            return {
+              ...prev,
+              structure: {
+                ...prev.structure,
+                animations: Array.isArray(currentAnimations) 
+                  ? [...currentAnimations, animationClip]
+                  : [animationClip]
+              }
+            }
+          })
+          
+          showMessage("애니메이션 적용 성공", `${rightVRMAName} 애니메이션이 적용되었습니다.`)
+        } else {
+          showMessage("애니메이션 적용 실패", "AnimationClip 생성에 실패했습니다.", "error")
+        }
+      }
+    } catch (error) {
+      console.error("VRMA 적용 오류:", error)
+      showMessage("애니메이션 적용 실패", error instanceof Error ? error.message : "알 수 없는 오류", "error")
+    }
+  }, [rightVRM, rightVRMAFile, rightVRMAName])
+
   return (
     <main className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-center mb-8">VRM/GLB 모델 머저</h1>
@@ -266,11 +414,24 @@ export default function Home() {
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               setLeftModel({ file, structure, url, error })
+              // 새 모델 로드 시 VRMA 관련 상태 초기화
+              setLeftVRMAFile(null)
+              setLeftVRMAName(null)
               // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
           />
+
+          {/* VRMA 애니메이션 드롭존 추가 */}
+          <div className="mt-3">
+            <VRMADropZone
+              onAnimationLoaded={handleLeftVRMALoaded}
+              onAnimationApply={handleLeftVRMAApply}
+              isVRMLoaded={!!leftVRM}
+              loadedAnimationName={leftVRMAName}
+            />
+          </div>
 
           {leftModel.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
@@ -309,14 +470,15 @@ export default function Home() {
                             ) || []
                           );
                         }
+                        
+                        const currentAnimations = result.result.animations || []
                         setLeftModel({
                           ...leftModel,
                           structure: {
                             ...result.result,
-                            animations: [
-                              ...(result.result.animations || []),
-                              anim
-                            ]
+                            animations: Array.isArray(currentAnimations) 
+                              ? [...currentAnimations, anim]
+                              : [anim]
                           }
                         })
                         showMessage("애니메이션 붙여넣기 성공", result.message)
@@ -361,6 +523,7 @@ export default function Home() {
                   modelStructure={leftModel.structure}
                   onSceneReady={handleLeftSceneReady}
                   onAnimationsLoaded={handleLeftAnimationsLoaded}
+                  onVRMLoaded={handleLeftVRMLoaded}
                 />
               )
             ) : (
@@ -388,11 +551,24 @@ export default function Home() {
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               setRightModel({ file, structure, url, error })
+              // 새 모델 로드 시 VRMA 관련 상태 초기화
+              setRightVRMAFile(null)
+              setRightVRMAName(null)
               // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
           />
+
+          {/* VRMA 애니메이션 드롭존 추가 */}
+          <div className="mt-3">
+            <VRMADropZone
+              onAnimationLoaded={handleRightVRMALoaded}
+              onAnimationApply={handleRightVRMAApply}
+              isVRMLoaded={!!rightVRM}
+              loadedAnimationName={rightVRMAName}
+            />
+          </div>
 
           {rightModel.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
@@ -454,6 +630,7 @@ export default function Home() {
                   modelStructure={rightModel.structure}
                   onSceneReady={handleRightSceneReady}
                   onAnimationsLoaded={handleRightAnimationsLoaded}
+                  onVRMLoaded={handleRightVRMLoaded}
                 />
               )
             ) : (
