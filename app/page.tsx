@@ -13,7 +13,7 @@ import { createPasteResult, deleteNodeFromStructure } from "@/lib/model-utils"
 import { Button } from "@/components/ui/button"
 import { HistoryManager } from "@/lib/history-manager"
 import { ModelDownloadButton } from "@/components/model-download-button"
-import type * as THREE from "three"
+import * as THREE from "three"
 
 // 간단한 toast 대체 함수
 const showMessage = (title: string, description: string, type: "success" | "error" = "success") => {
@@ -196,6 +196,30 @@ export default function Home() {
     handleRightSceneChange(scene)
   }, [handleRightSceneChange])
 
+  // 왼쪽 모델 애니메이션 로드 핸들러
+  const handleLeftAnimationsLoaded = useCallback((animations: THREE.AnimationClip[]) => {
+    console.log("왼쪽 모델 애니메이션 로드됨:", animations.length)
+    setLeftModel(prev => ({
+      ...prev,
+      structure: {
+        ...prev.structure,
+        animations: animations
+      }
+    }))
+  }, [])
+
+  // 오른쪽 모델 애니메이션 로드 핸들러
+  const handleRightAnimationsLoaded = useCallback((animations: THREE.AnimationClip[]) => {
+    console.log("오른쪽 모델 애니메이션 로드됨:", animations.length)
+    setRightModel(prev => ({
+      ...prev,
+      structure: {
+        ...prev.structure,
+        animations: animations
+      }
+    }))
+  }, [])
+
   return (
     <main className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-center mb-8">VRM/GLB 모델 머저</h1>
@@ -235,12 +259,14 @@ export default function Home() {
               scene={leftSceneRef.current}
               fileName={leftModel.file?.name || "model_a.glb"}
               disabled={!leftModel.structure}
+              modelStructure={leftModel.structure}
             />
           </div>
 
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               setLeftModel({ file, structure, url, error })
+              // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
@@ -267,8 +293,37 @@ export default function Home() {
                         description: `모델 B에서 모델 A로 '${clipboard.data.path[clipboard.data.path.length - 1] || "root"}' 노드 붙여넣기`,
                       })
 
-                      setLeftModel({ ...leftModel, structure: result.result })
-                      showMessage("붙여넣기 성공", result.message)
+                      // 애니메이션 노드 복사/붙여넣기 지원
+                      if (clipboard.data.type === "animation" && clipboard.data.animation) {
+                        let anim = clipboard.data.animation;
+                        // AnimationClip이 인스턴스가 아니면 변환
+                        if (!(anim instanceof THREE.AnimationClip)) {
+                          anim = new THREE.AnimationClip(
+                            anim.name,
+                            anim.duration,
+                            anim.tracks?.map(track =>
+                              // track이 인스턴스가 아니면 변환
+                              (track && track.constructor && track.constructor.name !== "KeyframeTrack")
+                                ? new THREE.KeyframeTrack(track.name, track.times, track.values, track.interpolation)
+                                : track
+                            ) || []
+                          );
+                        }
+                        setLeftModel({
+                          ...leftModel,
+                          structure: {
+                            ...result.result,
+                            animations: [
+                              ...(result.result.animations || []),
+                              anim
+                            ]
+                          }
+                        })
+                        showMessage("애니메이션 붙여넣기 성공", result.message)
+                      } else {
+                        setLeftModel({ ...leftModel, structure: result.result })
+                        showMessage("붙여넣기 성공", result.message)
+                      }
                     } else {
                       showMessage("붙여넣기 실패", result.message, "error")
                     }
@@ -305,6 +360,7 @@ export default function Home() {
                   url={leftModel.url}
                   modelStructure={leftModel.structure}
                   onSceneReady={handleLeftSceneReady}
+                  onAnimationsLoaded={handleLeftAnimationsLoaded}
                 />
               )
             ) : (
@@ -325,12 +381,14 @@ export default function Home() {
               scene={rightSceneRef.current}
               fileName={rightModel.file?.name || "model_b.glb"}
               disabled={!rightModel.structure}
+              modelStructure={rightModel.structure}
             />
           </div>
 
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               setRightModel({ file, structure, url, error })
+              // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
@@ -395,6 +453,7 @@ export default function Home() {
                   url={rightModel.url}
                   modelStructure={rightModel.structure}
                   onSceneReady={handleRightSceneReady}
+                  onAnimationsLoaded={handleRightAnimationsLoaded}
                 />
               )
             ) : (

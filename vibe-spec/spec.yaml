@@ -454,6 +454,33 @@ implementation_checklist:
       - "🔄 노드 렌더링 가상화 (많은 노드 처리)"
       - "🔄 검색 성능 개선 (인덱싱)"
 
+  ## ✅ 최근 해결된 문제들
+  recently_fixed:
+    glb_export_issues:
+      - "✅ GLB 파일 크기 축소 문제 해결"
+        description: "원본 대비 50% 축소되던 문제 완전 해결"
+        solution: "모델 객체만 선별적 추출, 시스템 객체 정확한 필터링"
+        date: "2025-05-20"
+      
+      - "✅ 객체 겹침 문제 해결"
+        description: "내보낸 모델의 모든 객체가 원점으로 모이던 문제 해결"
+        solution: "월드 변환 행렬 보존, 변환 매트릭스 분해 방지 (trs: false)"
+        date: "2025-05-20"
+      
+      - "✅ 애니메이션 누락 문제 해결"
+        description: "내보낸 GLB 파일에 애니메이션이 포함되지 않던 문제 해결"
+        solution: "Three.js AnimationClip을 모델 구조에 직접 저장, 애니메이션 콜백 추가"
+        technical_details:
+          - "ModelViewer에서 onAnimationsLoaded 콜백으로 애니메이션 전달"
+          - "부모 컴포넌트에서 modelStructure.animations에 Three.js 객체 저장"
+          - "GLTFExporter에 실제 AnimationClip 배열 전달"
+        date: "2025-05-20"
+      
+      - "✅ 텍스처 품질 보존"
+        description: "내보내기 시 텍스처 품질이 저하되던 문제 해결"
+        solution: "forcePowerOfTwoTextures: false, maxTextureSize 설정"
+        date: "2025-05-20"
+
   ## 🔲 미구현 기능들 (우선순위별)
   not_implemented:
     

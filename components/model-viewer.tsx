@@ -14,9 +14,10 @@ interface ModelViewerProps {
   url: string
   modelStructure: any
   onSceneReady?: (scene: THREE.Scene) => void
+  onAnimationsLoaded?: (animations: THREE.AnimationClip[]) => void
 }
 
-export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerProps) {
+export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoaded }: ModelViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -46,37 +47,40 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
   const modelStructureRef = useRef<any>(null)
   const structureChangedRef = useRef<boolean>(false)
 
+// modelStructure.animations가 바뀔 때 애니메이션 상태 동기화
+useEffect(() => {
+  if (modelStructure && Array.isArray(modelStructure.animations) && modelRef.current) {
+    setAnimations(modelStructure.animations)
+    animationsRef.current = modelStructure.animations
+    setHasAnimations(modelStructure.animations.length > 0)
+    if (modelStructure.animations.length > 0) {
+      // AnimationMixer 재설정
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction()
+        mixerRef.current.uncacheRoot(mixerRef.current.getRoot && mixerRef.current.getRoot())
+      }
+      const mixer = new THREE.AnimationMixer(modelRef.current)
+      mixerRef.current = mixer
+      // 첫 번째 애니메이션 자동 선택 및 재생
+      setCurrentAnimation(modelStructure.animations[0].name)
+      const action = mixer.clipAction(modelStructure.animations[0])
+      action.reset()
+      action.setLoop(THREE.LoopRepeat, Infinity)
+      action.enabled = true
+      action.paused = false
+      action.play()
+      currentActionRef.current = action
+      isPlayingRef.current = true
+      setIsPlaying(true)
+    }
+  }
+}, [modelStructure && modelStructure.animations])
   // 모델 구조가 변경되었는지 확인 (useEffect로 안전하게 처리)
-  useEffect(() => {
-    if (!modelStructure) return
-    
-    // 초기 구조 설정
-    if (!modelStructureRef.current) {
-      modelStructureRef.current = JSON.parse(JSON.stringify(modelStructure))
-      return
-    }
-    
-    // 구조 변경 여부 확인
-    const hasChanged = JSON.stringify(modelStructure) !== JSON.stringify(modelStructureRef.current)
-    
-    if (hasChanged && isModelLoaded && sceneRef.current) {
-      console.log("모델 구조 변경 감지됨, 모델 다시 로드")
-      
-      // 구조 참조 업데이트
-      modelStructureRef.current = JSON.parse(JSON.stringify(modelStructure))
-      
-      // 구조 변경 플래그 설정
-      structureChangedRef.current = true
-      
-      // 다음 렌더 사이클에서 모델 다시 로드
-      setTimeout(() => {
-        if (structureChangedRef.current) {
-          loadModel(urlRef.current)
-          structureChangedRef.current = false
-        }
-      }, 0)
-    }
-  }, [modelStructure]) // isModelLoaded 의존성 제거
+  // 모델 구조 변경 감지로 인한 중복 loadModel 호출 방지 (비활성화)
+  // useEffect(() => {
+  //   if (!modelStructure) return
+  //   // ... 이하 생략
+  // }, [modelStructure])
 
   // 모델 로드 함수
   const loadModel = (modelUrl: string) => {
@@ -87,16 +91,67 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
 
     const scene = sceneRef.current
 
-    // 이전 모델 제거
+    // 씬의 모든 자식(시스템 객체 제외) 완전 제거 및 dispose (while 패턴)
+    const systemTypes = [
+      "GridHelper", "DirectionalLight", "AmbientLight", "HemisphereLight", "PointLight", "SpotLight", "CameraHelper"
+    ];
+    let i = 0;
+    while (i < scene.children.length) {
+      const child = scene.children[i];
+      if (!systemTypes.includes(child.type)) {
+        scene.remove(child);
+        if (child instanceof THREE.Object3D && typeof child.traverse === "function") {
+          child.traverse((object: THREE.Object3D) => {
+            if (object instanceof THREE.Mesh) {
+              if (object.geometry) object.geometry.dispose()
+              if (object.material) {
+                if (Array.isArray(object.material)) {
+                  object.material.forEach((material: THREE.Material) => material.dispose())
+                } else {
+                  (object.material as THREE.Material).dispose()
+                }
+              }
+            }
+          })
+        }
+        // remove하면 children 배열이 줄어드므로, i를 증가시키지 않음
+      } else {
+        i++;
+      }
+    }
+
+    // 이전 모델 제거 (기존 방식, 혹시 modelRef.current가 남아있을 경우)
     if (modelRef.current) {
       scene.remove(modelRef.current)
+      if (modelRef.current instanceof THREE.Object3D && typeof modelRef.current.traverse === "function") {
+        modelRef.current.traverse((object: THREE.Object3D) => {
+          if (object instanceof THREE.Mesh) {
+            if (object.geometry) object.geometry.dispose()
+            if (object.material) {
+              if (Array.isArray(object.material)) {
+                object.material.forEach((material: THREE.Material) => material.dispose())
+              } else {
+                (object.material as THREE.Material).dispose()
+              }
+            }
+          }
+        })
+      }
       modelRef.current = null
     }
 
     // 애니메이션 정리
     if (mixerRef.current) {
       mixerRef.current.stopAllAction()
+      mixerRef.current.uncacheRoot(mixerRef.current.getRoot && mixerRef.current.getRoot())
+      mixerRef.current = null
     }
+    if (currentActionRef.current) {
+      currentActionRef.current.stop()
+      currentActionRef.current = null
+    }
+    animationsRef.current = []
+    animationFrameRef.current = null
 
     // 애니메이션 상태 초기화
     setAnimations([])
@@ -111,14 +166,14 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
 
     // 모델 로더 설정
     const loader = new GLTFLoader()
-    loader.register((parser) => new VRMLoaderPlugin(parser))
+    loader.register((parser: any) => new VRMLoaderPlugin(parser))
 
     console.log(`모델 로드 시작: ${modelUrl}`)
 
     // 모델 로드
     loader.load(
       modelUrl,
-      (gltf) => {
+      (gltf: any) => {
         console.log("모델 로드 성공:", gltf)
 
         let model: THREE.Object3D
@@ -127,7 +182,7 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
         if (gltf.userData.vrm) {
           console.log("VRM 모델 감지됨")
           const vrm = gltf.userData.vrm
-          VRMUtils.removeUnnecessaryJoints(vrm.humanoid.humanBones)
+          VRMUtils.removeUnnecessaryJoints(vrm.scene)
           model = vrm.scene
         } else {
           // 일반 GLB 모델인 경우
@@ -145,13 +200,37 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
         const box = new THREE.Box3().setFromObject(model)
         const size = box.getSize(new THREE.Vector3()).length()
         const center = box.getCenter(new THREE.Vector3())
+        console.log("[모델 bounding box size]", size)
+        console.log("[모델 bounding box center]", center)
+        if (cameraRef.current) {
+          const cam = cameraRef.current;
+          console.log("[카메라 fov]", cam.fov, "[aspect]", cam.aspect, "[near]", cam.near, "[far]", cam.far)
+        }
 
         model.position.x = -center.x
         model.position.y = -center.y
         model.position.z = -center.z
 
-        const scale = 1.5 / size
-        model.scale.set(scale, scale, scale)
+        // 화면의 80%를 채우도록 카메라 거리 자동 조정
+        model.scale.set(1, 1, 1)
+        const boxSize = box.getSize(new THREE.Vector3())
+        const maxDim = Math.max(boxSize.x, boxSize.y, boxSize.z)
+        const fitRatio = 0.8
+        if (cameraRef.current) {
+          const camera = cameraRef.current
+          const fov = camera.fov * (Math.PI / 180)
+          // 화면의 세로 기준으로 fit, aspect가 크면 가로도 고려
+          const fitHeightDistance = (maxDim / fitRatio) / (2 * Math.tan(fov / 2))
+          const fitWidthDistance = (maxDim / fitRatio) / (2 * Math.tan(fov / 2)) / camera.aspect
+          const distance = Math.max(fitHeightDistance, fitWidthDistance)
+          camera.position.copy(center)
+          camera.position.x += distance
+          camera.position.y += distance * 0.3 // 약간 위에서 내려다보는 각도
+          camera.position.z += distance
+          camera.lookAt(center)
+          console.log("[카메라 fit distance]", distance)
+        }
+        console.log("[모델 scale]", 1)
 
         scene.add(model)
 
@@ -163,10 +242,20 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
           camera.position.y += size / 5.0
           camera.position.z += size / 2.0
           camera.lookAt(center)
+          console.log("[카메라 position]", camera.position)
+        }
+
+        // 새 모델 추가 후 잔상 제거를 위해 명시적으로 color/depth/stencil 모두 clear + render
+        if (rendererRef.current && sceneRef.current && cameraRef.current) {
+          rendererRef.current.clear(true, true, true);
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
         }
 
         // 애니메이션 설정
         console.log("모델 애니메이션:", gltf.animations)
+        console.log("구조 애니메이션:", modelStructure?.animations)
+        
+        // GLTF에서 로드된 애니메이션과 구조 정보를 모두 모델 구조에 저장
         if (gltf.animations && gltf.animations.length > 0) {
           console.log(`${gltf.animations.length}개의 애니메이션 발견`)
           const anims = gltf.animations
@@ -206,9 +295,15 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
           setHasAnimations(false)
         }
 
-        // 상태 업데이트를 비동기적으로 처리
+        // 상태 업데이트를 비동기적으로 처리하면서 애니메이션 데이터 동기화
         setTimeout(() => {
           setIsModelLoaded(true)
+          
+          // 애니메이션이 로드되었음을 부모 컴포넌트에 알림
+          if (gltf.animations && gltf.animations.length > 0 && onAnimationsLoaded) {
+            console.log("애니메이션 데이터를 부모 컴포넌트로 전달 중...")
+            onAnimationsLoaded(gltf.animations)
+          }
         }, 0)
 
         // 씬 구조 디버깅
@@ -355,19 +450,24 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
         sceneRef.current.remove(modelRef.current)
 
         // 메모리 정리
-        if (modelRef.current.traverse) {
-          modelRef.current.traverse((object) => {
+        // traverse 호출 전 Object3D 타입 체크 및 에러 핸들링
+        if (modelRef.current instanceof THREE.Object3D && typeof modelRef.current.traverse === "function") {
+          modelRef.current.traverse((object: THREE.Object3D) => {
             if (object instanceof THREE.Mesh) {
               if (object.geometry) object.geometry.dispose()
               if (object.material) {
                 if (Array.isArray(object.material)) {
-                  object.material.forEach((material) => material.dispose())
+                  object.material.forEach((material: THREE.Material) => material.dispose())
                 } else {
-                  object.material.dispose()
+                  (object.material as THREE.Material).dispose()
                 }
               }
             }
           })
+        } else if (modelRef.current) {
+          // traverse가 없거나 Object3D가 아닌 경우: 미지원 포맷 또는 파싱 실패
+          console.error("모델 로딩 실패: 지원하지 않는 파일 포맷이거나, Object3D가 아님.", modelRef.current)
+          alert("모델 로딩 실패: 지원하지 않는 파일 포맷이거나, Three.js에서 파싱할 수 없는 모델입니다.\nGLTF/GLB/VRM 파일만 지원합니다.")
         }
       }
 
@@ -411,7 +511,7 @@ export function ModelViewer({ url, modelStructure, onSceneReady }: ModelViewerPr
     }
 
     // 선택한 애니메이션 찾기
-    const clip = animationsRef.current.find((anim) => anim.name === currentAnimation)
+    const clip = animationsRef.current.find((anim: THREE.AnimationClip) => anim.name === currentAnimation)
     if (!clip) {
       console.warn(`애니메이션 '${currentAnimation}'을 찾을 수 없습니다.`)
       return

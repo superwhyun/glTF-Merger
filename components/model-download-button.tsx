@@ -10,10 +10,12 @@ import * as THREE from "three"
 interface ModelDownloadButtonProps {
   scene: THREE.Scene | null
   fileName: string
+  animations?: THREE.AnimationClip[]
   disabled?: boolean
+  modelStructure?: any // 모델 구조에서 애니메이션 정보를 가져오기 위해 추가
 }
 
-export function ModelDownloadButton({ scene, fileName, disabled = false }: ModelDownloadButtonProps) {
+export function ModelDownloadButton({ scene, fileName, animations = [], disabled = false, modelStructure }: ModelDownloadButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
   const { toast } = useToast()
 
@@ -27,21 +29,35 @@ export function ModelDownloadButton({ scene, fileName, disabled = false }: Model
       return
     }
 
+    // 모델 구조에서 애니메이션 정보 추출 (우선순위: modelStructure > props)
+    const exportAnimations = (modelStructure?.animations && Array.isArray(modelStructure.animations)) 
+      ? modelStructure.animations 
+      : animations;
+
     // 씬에 모델이 있는지 확인
     let hasModel = false
     let objectCount = 0
+    const systemTypes = [
+      "GridHelper", "DirectionalLight", "AmbientLight", "HemisphereLight", 
+      "PointLight", "SpotLight", "CameraHelper"
+    ];
 
     scene.traverse((object) => {
       objectCount++
-      if (object instanceof THREE.Mesh || (object instanceof THREE.Group && object !== scene)) {
+      const isSystemObject = systemTypes.includes(object.type) || 
+                            object.name.includes("Helper") || 
+                            object.name.includes("Grid");
+      
+      if (!isSystemObject && 
+          (object instanceof THREE.Mesh || 
+           (object instanceof THREE.Group && object.parent === scene))) {
         hasModel = true
       }
     })
 
-    console.log(`내보내기 전 씬 확인: 총 객체 수 ${objectCount}, 모델 존재: ${hasModel}`)
+    console.log(`내보내기 전 분석: 총 객체 ${objectCount}개, 모델 존재: ${hasModel}, 애니메이션 ${exportAnimations.length}개`)
 
-    if (objectCount <= 1) {
-      // 씬 자체만 있는 경우
+    if (!hasModel) {
       toast({
         title: "내보내기 실패",
         description: "씬에 내보낼 모델이 없습니다.",
@@ -53,8 +69,10 @@ export function ModelDownloadButton({ scene, fileName, disabled = false }: Model
     setIsExporting(true)
 
     try {
-      console.log("모델 내보내기 시작:", fileName)
-      exportModelToGLB(scene, fileName)
+      console.log("GLB 내보내기 시작:", fileName)
+      console.log("사용할 애니메이션:", exportAnimations.map(a => a.name))
+      
+      exportModelToGLB(scene, fileName, exportAnimations)
 
       toast({
         title: "내보내기 성공",

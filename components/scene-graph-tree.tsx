@@ -49,6 +49,8 @@ export function SceneGraphTree({
   const [filterType, setFilterType] = useState<string>("all")
   const [showInvisible, setShowInvisible] = useState(true)
   const [showSystemObjects, setShowSystemObjects] = useState(false)
+  // 강제 리렌더링용 dummy state
+  const [_, setRerender] = useState(0)
   
   const searcherRef = useRef<NodeSearcher | null>(null)
   
@@ -235,6 +237,7 @@ export function SceneGraphTree({
   // 노드 가시성 토글
   const toggleVisibility = (object: THREE.Object3D) => {
     object.visible = !object.visible
+    setRerender(v => v + 1) // 강제 리렌더링
     if (onSceneChange) {
       onSceneChange(scene!)
     }
