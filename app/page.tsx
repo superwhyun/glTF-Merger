@@ -3,86 +3,48 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { ModelDropZone } from "@/components/model-drop-zone"
 import { ModelViewer } from "@/components/model-viewer"
-import { ModelTree } from "@/components/model-tree"
-import { SceneGraphTree } from "@/components/scene-graph-tree"
+import { GLTFModelTree } from "@/components/gltf-model-tree"
+import { GLTFSceneGraph } from "@/components/gltf-scene-graph"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, Undo2, Redo2 } from "lucide-react"
 
-// 상단에 import 추가
-import { createPasteResult } from "@/lib/model-utils"
+import { type GLTFNodeInfo, moveNodeInDocument, copyNodeInDocument, removeNodeFromDocument } from "@/lib/gltf-transform-utils"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { HistoryManager } from "@/lib/history-manager"
 import { ModelDownloadButton } from "@/components/model-download-button"
 import { VRMADropZone } from "@/components/vrma-drop-zone"
 import * as THREE from "three"
 import type { VRM } from "@pixiv/three-vrm"
-import { showMessage } from "../lib/showMessage"
-import { useModel } from "../hooks/useModel"
-
-// MemoizedToaster 제거
+import { showMessage } from "@/lib/showMessage"
+import { useModel } from "@/hooks/useModel"
 
 export default function Home() {
   // 히스토리 매니저 추가
   const [historyManager] = useState(() => new HistoryManager(50))
 
-  const left = useModel(historyManager, "left");
-  const right = useModel(historyManager, "right");
+  const left = useModel(historyManager, "left")
+  const right = useModel(historyManager, "right")
 
-  // GLTFDocumentManager 참조 추가 (임시 비활성화)
-  // const leftDocumentManagerRef = useRef<GLTFDocumentManager | null>(null);
-  // const rightDocumentManagerRef = useRef<GLTFDocumentManager | null>(null);
-  const leftDocumentManagerRef = useRef<any>(null);
-  const rightDocumentManagerRef = useRef<any>(null);
+  // GLTFDocumentManager 참조 추가
+  const leftDocumentManagerRef = useRef<any>(null)
+  const rightDocumentManagerRef = useRef<any>(null)
 
   const [clipboard, setClipboard] = useState<{
-    data: any
+    nodeInfo: GLTFNodeInfo | null
     source: "left" | "right" | null
   }>({
-    data: null,
+    nodeInfo: null,
     source: null,
   })
 
-  // useState 부분에 pasteMode 상태 추가
-  const [pasteMode, setPasteMode] = useState<"add" | "replace">("add")
+  // 히스토리 상태 추가
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
   // 씬 참조 추가
   const leftSceneRef = useRef<THREE.Scene | null>(null)
   const rightSceneRef = useRef<THREE.Scene | null>(null)
-
-
-  // Scene 상태 (리렌더링 트리거용)
-  const [leftScene, setLeftScene] = useState<THREE.Scene | null>(null)
-  const [rightScene, setRightScene] = useState<THREE.Scene | null>(null)
-
-  // Scene Graph용 클립보드 (Three.js Object3D 기반)
-  const [sceneClipboard, setSceneClipboard] = useState<{
-    object: THREE.Object3D | null
-    source: "left" | "right" | null
-  }>({
-    object: null,
-    source: null,
-  })
-
-  // 씬 변경 핸들러들 - 안정화
-  const handleLeftSceneChange = useCallback((scene: THREE.Scene) => {
-    if (leftSceneRef.current !== scene) {
-      leftSceneRef.current = scene
-      setLeftScene(scene)
-      console.log("Left scene updated:", scene.uuid)
-    }
-  }, [])
-
-  const handleRightSceneChange = useCallback((scene: THREE.Scene) => {
-    if (rightSceneRef.current !== scene) {
-      rightSceneRef.current = scene
-      setRightScene(scene)
-      console.log("Right scene updated:", scene.uuid)
-    }
-  }, [])
-
-  // 컴포넌트 내부에서 toast 제거
 
   // 히스토리 상태 업데이트
   useEffect(() => {
@@ -118,36 +80,33 @@ export default function Home() {
     showMessage("다시 실행", action.description)
   }
 
-
   // DocumentManager 준비 핸들러들
   const handleLeftDocumentManagerReady = useCallback((manager: any) => {
-    leftDocumentManagerRef.current = manager;
-    console.log("🟢 [PAGE] Left DocumentManager ready and saved:", manager);
-  }, []);
+    leftDocumentManagerRef.current = manager
+    console.log("🟢 [PAGE] Left DocumentManager ready and saved:", manager)
+  }, [])
 
   const handleRightDocumentManagerReady = useCallback((manager: any) => {
-    rightDocumentManagerRef.current = manager;
-    console.log("🟢 [PAGE] Right DocumentManager ready and saved:", manager);
-  }, []);
+    rightDocumentManagerRef.current = manager
+    console.log("🟢 [PAGE] Right DocumentManager ready and saved:", manager)
+  }, [])
 
-  // 왼쪽 씬 준비 핸들러 - 안정화
+  // Scene 준비 핸들러들
   const handleLeftSceneReady = useCallback((scene: THREE.Scene) => {
     console.log("Left scene ready:", scene.uuid)
-    handleLeftSceneChange(scene)
-  }, [handleLeftSceneChange])
+    leftSceneRef.current = scene
+  }, [])
 
-  // 오른쪽 씬 준비 핸들러 - 안정화
   const handleRightSceneReady = useCallback((scene: THREE.Scene) => {
-    console.log("Right scene ready:", scene.uuid)
-    handleRightSceneChange(scene)
-  }, [handleRightSceneChange])
-
+    console.log("Right scene ready:", scene.uuid)  
+    rightSceneRef.current = scene
+  }, [])
 
   return (
     <main className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-center mb-8">VRM/GLB 모델 머저</h1>
 
-      {/* 실행 취소/다시 실행 버튼 추가 */}
+      {/* 실행 취소/다시 실행 버튼 */}
       <div className="flex justify-center gap-2 mb-4">
         <Button
           variant="outline"
@@ -176,8 +135,6 @@ export default function Home() {
         <div className="border rounded-lg p-4 flex flex-col h-full">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">모델 A</h2>
-
-            {/* 다운로드 버튼 */}
             <ModelDownloadButton
               scene={leftSceneRef.current}
               fileName={left.model.file?.name || "model_a"}
@@ -192,16 +149,12 @@ export default function Home() {
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               left.setModel({ file, structure, url, error })
-              // 새 모델 로드 시 VRMA 관련 상태 초기화
               left.setVRMAFile(null)
               left.setVRMAName(null)
-              // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
-              // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
           />
 
-          {/* VRMA 애니메이션 드롭존 추가 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={left.handleVRMALoaded}
@@ -214,76 +167,57 @@ export default function Home() {
 
           {left.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
-              {/* 기존 모델 구조 트리 */}
-              <ModelTree
-                structure={left.model.structure}
-                onCopy={(data) => setClipboard({ data, source: "left" })}
-                onPaste={(path) => {
-                  if (clipboard.data && clipboard.source === "right") {
-                    const prevState = left.model.structure
-                    const result = createPasteResult(clipboard.data, left.model.structure, path, pasteMode)
-
-                    if (result.success) {
-                      historyManager.addAction({
-                        type: "paste",
-                        targetSide: "left",
-                        path,
-                        prevState,
-                        newState: result.result,
-                        description: `모델 B에서 모델 A로 '${clipboard.data.path[clipboard.data.path.length - 1] || "root"}' 노드 붙여넣기`,
-                      })
-
-                      // 애니메이션 노드 복사/붙여넣기 지원
-                      if (clipboard.data.type === "animation" && clipboard.data.animation) {
-                        let anim = clipboard.data.animation;
-                        // AnimationClip이 인스턴스가 아니면 변환
-                        if (!(anim instanceof THREE.AnimationClip)) {
-                          anim = new THREE.AnimationClip(
-                            anim.name,
-                            anim.duration,
-                            anim.tracks?.map(track =>
-                              // track이 인스턴스가 아니면 변환
-                              (track && track.constructor && track.constructor.name !== "KeyframeTrack")
-                                ? new THREE.KeyframeTrack(track.name, track.times, track.values, track.interpolation)
-                                : track
-                            ) || []
-                          );
-                        }
-                        
-                        const currentAnimations = result.result.animations || []
-                        left.setModel({
-                          ...left.model,
-                          structure: {
-                            ...result.result,
-                            animations: Array.isArray(currentAnimations) 
-                              ? [...currentAnimations, anim]
-                              : [anim]
-                          }
-                        })
-                        showMessage("애니메이션 붙여넣기 성공", result.message)
-                      } else {
-                        left.setModel({ ...left.model, structure: result.result })
-                        showMessage("붙여넣기 성공", result.message)
-                      }
-                    } else {
-                      showMessage("붙여넣기 실패", result.message, "error")
-                    }
-                  }
+              <GLTFModelTree
+                document={leftDocumentManagerRef.current?.getDocument() || null}
+                onNodeSelect={(nodeInfo) => {
+                  console.log("Left node selected:", nodeInfo)
                 }}
-                onDelete={left.handleDelete}
+                onNodeCopy={(nodeInfo) => {
+                  setClipboard({ nodeInfo, source: "left" })
+                }}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Delete node:", nodeId)
+                }}
                 side="left"
-                otherSideHasData={!!right.model.structure}
                 clipboard={clipboard}
               />
               
-              {/* Scene Graph 트리 */}
-              <SceneGraphTree
-                scene={leftScene}
-                onSceneChange={handleLeftSceneChange}
+              <GLTFSceneGraph
+                document={leftDocumentManagerRef.current?.getDocument() || null}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Scene graph move:", sourceNodeId, "to", targetNodeId)
+                  const document = leftDocumentManagerRef.current?.getDocument()
+                  if (document && moveNodeInDocument(document, sourceNodeId, targetNodeId)) {
+                    showMessage("노드 이동", "노드가 성공적으로 이동되었습니다")
+                    left.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onNodeCopy={(sourceNodeId, targetNodeId) => {
+                  console.log("Scene graph copy:", sourceNodeId, "to", targetNodeId)
+                  const document = leftDocumentManagerRef.current?.getDocument()
+                  if (document && copyNodeInDocument(document, sourceNodeId, targetNodeId)) {
+                    showMessage("노드 복사", "노드가 성공적으로 복사되었습니다")
+                    left.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Scene graph delete:", nodeId)
+                  const document = leftDocumentManagerRef.current?.getDocument()
+                  if (document && removeNodeFromDocument(document, nodeId)) {
+                    showMessage("노드 삭제", "노드가 성공적으로 삭제되었습니다")
+                    left.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onSceneUpdate={() => {
+                  console.log("Scene updated")
+                }}
                 side="left"
-                otherSideScene={rightScene}
-                clipboard={sceneClipboard}
-                onClipboardChange={setSceneClipboard}
+                otherSideDocument={rightDocumentManagerRef.current?.getDocument() || null}
+                clipboard={clipboard}
+                onClipboardChange={setClipboard}
               />
             </div>
           )}
@@ -318,9 +252,6 @@ export default function Home() {
         <div className="border rounded-lg p-4 flex flex-col h-full">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">모델 B</h2>
-
-            {/* 다운로드 버튼 추가 */}
-            {/* 다운로드 버튼 */}
             <ModelDownloadButton
               scene={rightSceneRef.current}
               fileName={right.model.file?.name || "model_b"}
@@ -335,16 +266,12 @@ export default function Home() {
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               right.setModel({ file, structure, url, error })
-              // 새 모델 로드 시 VRMA 관련 상태 초기화
               right.setVRMAFile(null)
               right.setVRMAName(null)
-              // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
-              // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
             }}
           />
 
-          {/* VRMA 애니메이션 드롭존 추가 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={right.handleVRMALoaded}
@@ -356,46 +283,57 @@ export default function Home() {
 
           {right.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
-              {/* 기존 모델 구조 트리 */}
-              <ModelTree
-                structure={right.model.structure}
-                onCopy={(data) => setClipboard({ data, source: "right" })}
-                onPaste={(path) => {
-                  if (clipboard.data && clipboard.source === "left") {
-                    const prevState = right.model.structure
-                    const result = createPasteResult(clipboard.data, right.model.structure, path, pasteMode)
-
-                    if (result.success) {
-                      historyManager.addAction({
-                        type: "paste",
-                        targetSide: "right",
-                        path,
-                        prevState,
-                        newState: result.result,
-                        description: `모델 A에서 모델 B로 '${clipboard.data.path[clipboard.data.path.length - 1] || "root"}' 노드 붙여넣기`,
-                      })
-
-                      right.setModel({ ...right.model, structure: result.result })
-                      showMessage("붙여넣기 성공", result.message)
-                    } else {
-                      showMessage("붙여넣기 실패", result.message, "error")
-                    }
-                  }
+              <GLTFModelTree
+                document={rightDocumentManagerRef.current?.getDocument() || null}
+                onNodeSelect={(nodeInfo) => {
+                  console.log("Right node selected:", nodeInfo)
                 }}
-                onDelete={right.handleDelete}
+                onNodeCopy={(nodeInfo) => {
+                  setClipboard({ nodeInfo, source: "right" })
+                }}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Delete node:", nodeId)
+                }}
                 side="right"
-                otherSideHasData={!!left.model.structure}
                 clipboard={clipboard}
               />
               
-              {/* Scene Graph 트리 */}
-              <SceneGraphTree
-                scene={rightScene}
-                onSceneChange={handleRightSceneChange}
+              <GLTFSceneGraph
+                document={rightDocumentManagerRef.current?.getDocument() || null}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Scene graph move:", sourceNodeId, "to", targetNodeId)
+                  const document = rightDocumentManagerRef.current?.getDocument()
+                  if (document && moveNodeInDocument(document, sourceNodeId, targetNodeId)) {
+                    showMessage("노드 이동", "노드가 성공적으로 이동되었습니다")
+                    right.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onNodeCopy={(sourceNodeId, targetNodeId) => {
+                  console.log("Scene graph copy:", sourceNodeId, "to", targetNodeId)
+                  const document = rightDocumentManagerRef.current?.getDocument()
+                  if (document && copyNodeInDocument(document, sourceNodeId, targetNodeId)) {
+                    showMessage("노드 복사", "노드가 성공적으로 복사되었습니다")
+                    right.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Scene graph delete:", nodeId)
+                  const document = rightDocumentManagerRef.current?.getDocument()
+                  if (document && removeNodeFromDocument(document, nodeId)) {
+                    showMessage("노드 삭제", "노드가 성공적으로 삭제되었습니다")
+                    right.setModel(prev => ({ ...prev, structure: { ...prev.structure } }))
+                  }
+                }}
+                onSceneUpdate={() => {
+                  console.log("Scene updated")
+                }}
                 side="right"
-                otherSideScene={leftScene}
-                clipboard={sceneClipboard}
-                onClipboardChange={setSceneClipboard}
+                otherSideDocument={leftDocumentManagerRef.current?.getDocument() || null}
+                clipboard={clipboard}
+                onClipboardChange={setClipboard}
               />
             </div>
           )}
@@ -427,57 +365,26 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 붙여넣기 모드 선택 UI 및 클립보드 상태 표시 */}
+      {/* 클립보드 상태 표시 */}
       <div className="col-span-1 md:col-span-2 flex justify-center items-center gap-4 my-4">
-        {/* JSON 기반 클립보드 상태 */}
-        {clipboard.data && (
+        {clipboard.nodeInfo && (
           <div className="flex items-center gap-2 p-2 bg-primary/10 rounded-md">
-            <span className="text-sm font-medium">모델 구조 클립보드:</span>
-            <div className="flex border rounded-md overflow-hidden">
-              <button
-                className={`px-3 py-1 text-sm ${
-                  pasteMode === "add" ? "bg-primary text-primary-foreground" : "bg-background"
-                }`}
-                onClick={() => setPasteMode("add")}
-              >
-                추가
-              </button>
-              <button
-                className={`px-3 py-1 text-sm ${
-                  pasteMode === "replace" ? "bg-primary text-primary-foreground" : "bg-background"
-                }`}
-                onClick={() => setPasteMode("replace")}
-              >
-                대체
-              </button>
-            </div>
+            <span className="text-sm font-medium">클립보드:</span>
+            <Badge variant="outline">
+              {clipboard.nodeInfo.name} ({clipboard.nodeInfo.type})
+            </Badge>
             <span className="text-xs text-muted-foreground">
               {clipboard.source === "left" ? "모델 A → 모델 B" : "모델 B → 모델 A"}
             </span>
           </div>
         )}
         
-        {/* Scene Graph 클립보드 상태 */}
-        {sceneClipboard.object && (
-          <div className="flex items-center gap-2 p-2 bg-blue-100 rounded-md">
-            <span className="text-sm font-medium">Scene Graph 클립보드:</span>
-            <span className="text-xs px-2 py-1 bg-blue-200 rounded">
-              {sceneClipboard.object.name || sceneClipboard.object.type}
-            </span>
-            <span className="text-xs text-blue-600">
-              {sceneClipboard.source === "left" ? "씬 A → 씬 B" : "씬 B → 씬 A"}
-            </span>
-          </div>
-        )}
-        
-        {/* 클립보드 비우기 버튼 */}
-        {(clipboard.data || sceneClipboard.object) && (
+        {clipboard.nodeInfo && (
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
-              setClipboard({ data: null, source: null })
-              setSceneClipboard({ object: null, source: null })
+              setClipboard({ nodeInfo: null, source: null })
             }}
             className="text-gray-600"
           >

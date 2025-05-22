@@ -92,7 +92,7 @@ export function VRMADropZone({
     // accept 속성 완전 제거
   })
 
-  console.log("VRMADropZone 렌더링:", { isVRMLoaded, loadedAnimationName, isLoading })
+  // console.log("VRMADropZone 렌더링:", { isVRMLoaded, loadedAnimationName, isLoading })
 
   return (
     <div className="space-y-3">

@@ -4,7 +4,7 @@
 project:
   name: "GLTF-VRM-Merger"
   description: "VRM과 GLTF 모델을 로드하고 노드를 병합/복사/삭제할 수 있는 웹 기반 3D 모델 에디터"
-  version: "2.1.0"
+  version: "2.3.2"
   technology_stack:
     - "Next.js 15.2.4"
     - "React 19"  
@@ -22,20 +22,22 @@ file_structure:
     
   components:
     - "model-drop-zone.tsx: 파일 드롭 구역"
-    - "model-viewer.tsx: Three.js 3D 뷰어"
-    - "model-tree.tsx: 기본 구조 트리 컴포넌트"
-    - "enhanced-model-tree.tsx: Three.js 기반 개선된 트리 컴포넌트"
-    - "scene-graph-tree.tsx: Scene Graph 전용 트리 컴포넌트"
+    - "model-viewer.tsx: Three.js 3D 뷰어"  
+    - "gltf-model-tree.tsx: gltf-transform 기반 모델 구조 트리"
+    - "gltf-scene-graph.tsx: gltf-transform 기반 Scene Graph 트리"
     - "model-download-button.tsx: GLB 내보내기"
     - "theme-provider.tsx: 테마 관리"
     - "ui/: shadcn/ui 컴포넌트 모음"
+    - "vrma-drop-zone.tsx: VRMA 애니메이션 드롭 구역"
+    - "*.bak: Three.js 기반 트리 컴포넌트들 (삭제됨)"
     
   lib:
     - "model-utils.ts: 기본 모델 조작 유틸리티"
-    - "three-scene-utils.ts: Three.js 네이티브 API 기반 유틸리티"
+    - "gltf-transform-utils.ts: gltf-transform 기반 Scene Graph 분석 및 조작 유틸리티"
     - "model-exporter.ts: GLB 형식 내보내기 관련 유틸리티"
     - "gltf-document-manager.ts: glTF-Transform 기반 고급 모델 관리 클래스"
     - "history-manager.ts: 실행 취소/다시 실행 관리"
+    - "*.bak: Three.js 기반 유틸리티 (삭제됨)"
     
   hooks:
     - "커스텀 React 훅 (필요시 추가)"
@@ -44,6 +46,42 @@ file_structure:
     - "spec.yaml: 프로젝트 사양서"
 
 recent_changes:
+  - 버전: "2.3.2"
+    날짜: "2025-05-22"
+    변경내용:
+      - "VRMA 애니메이션 적용 문제 해결"
+      - "createAnimationClipFromVRMA 함수 대폭 개선"
+      - "VRM 애니메이션 라이브러리 API 호출 방식 다양화"
+      - "GLTF 애니메이션 데이터 직접 처리 로직 추가"
+      - "VRM humanoid 본 매핑 시스템 구현"
+      - "VRMA 본 이름을 VRM 본 이름으로 리맵핑 기능"
+      - "애니메이션 트랙 데이터 보존 및 변환 개선"
+  - 버전: "2.3.1"
+    날짜: "2025-05-22"
+    변경내용:
+      - "VRM 파일 인식 문제 해결"
+      - "ModelViewer에서 주석처리된 VRM 감지 코드 복원"
+      - "VRM 파일과 일반 GLB 파일 구분 로직 수정"
+      - "VRMA 드롭존 활성화 조건 수정 (VRM 로드 시 활성화)"
+      - "VRM 로드 시 적절한 로그 메시지 추가"
+  - 버전: "2.3.0"
+    날짜: "2025-05-22"
+    변경내용:
+      - "gltf-transform 기반 새로운 트리 컴포넌트 구현 완료"
+      - "GLTFModelTree: Document 기반 모델 구조 분석 및 표시"
+      - "GLTFSceneGraph: Scene Graph 전용 노드 조작 UI"
+      - "gltf-transform-utils.ts: Scene Graph 추출 및 조작 유틸리티"
+      - "드래그앤드롭 기반 노드 이동, 복사, 삭제 기능"
+      - "클립보드 시스템을 GLTFNodeInfo 기반으로 전환"
+      - "검색, 필터링, 통계 정보 표시 기능"
+  - 버전: "2.2.0"
+    날짜: "2025-05-22"
+    변경내용:
+      - "Three.js 기반 Scene Graph 트리 컴포넌트들 삭제"
+      - "model-tree.tsx, enhanced-model-tree.tsx, scene-graph-tree.tsx 제거"
+      - "three-scene-utils.ts 유틸리티 삭제"
+      - "gltf-transform 기반 새로운 트리 컴포넌트 구현 준비"
+      - "모델 구조 분석 로직을 gltf-transform으로 전환 예정"
   - 버전: "2.1.0"
     날짜: "2025-05-22"
     변경내용:
@@ -61,3 +99,21 @@ recent_changes:
 known_issues:
   - "복잡한 스켈레톤 구조가 있는 모델에서 일부 본 참조가 누락될 수 있음"
   - "일부 VRM 확장 속성이 내보내기 시 보존되지 않을 수 있음"
+
+todo_list:
+  - "모델 구조 및 Scene Graph UI 개선:"
+    - "각 요소 앞의 펼치기/접기 버튼(동그란 것) 제거"
+    - "트리 항목 간 세로 간격 줄여서 더 컴팩트하게 표시"
+  - "Scene Graph 노드 가시성 제어 기능:"
+    - "각 노드에 눈 모양 아이콘(가시성 토글) 추가"
+    - "눈을 뜨면(열림) 해당 노드가 3D 렌더링에서 보임"
+    - "눈을 감으면(닫힘) 해당 노드가 3D 렌더링에서 숨김"
+    - "Three.js Scene에서 node.visible 속성 제어"
+  - "Scene Graph 아키텍처 개선 (성능 최적화):"
+    - "현재 문제: gltf-transform Document 기반 Scene Graph는 변경 시 전체 재직렬화로 인한 성능 저하"
+    - "개선 방향: Three.js Scene 기반 Scene Graph로 전환"
+    - "Three.js Scene을 직접 순회하여 트리 구성 (scene.children 활용)"
+    - "노드 조작을 Three.js에서 직접 수행하여 즉시 렌더링 반영"
+    - "GLTFDocumentManager는 백그라운드에서 변경사항 추적 역할로 변경"
+    - "Document 동기화는 내보내기 시에만 수행하여 성능 개선"
+    - "예상 성능: 노드 조작 시 즉시 반영 (0ms), 전체 Document 재생성 불필요"

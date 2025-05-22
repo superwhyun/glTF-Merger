@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 import * as THREE from "three";
 import type { VRM } from "@pixiv/three-vrm";
-import { deleteNodeFromStructure } from "../lib/model-utils";
-import { loadVRMAAnimation, createAnimationClipFromVRMA, isVRMACompatible } from "../lib/vrma-utils";
-import { showMessage } from "../lib/showMessage";
+import { deleteNodeFromStructure } from "@/lib/model-utils";
+import { loadVRMAAnimation, createAnimationClipFromVRMA, isVRMACompatible } from "@/lib/vrma-utils";
+import { showMessage } from "@/lib/showMessage";
 
 type Side = "left" | "right";
 

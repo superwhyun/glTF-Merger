@@ -50,9 +50,28 @@ export class GLTFDocumentManager {
         console.log('🟢 - Document Graph 존재:', !!graph);
         
         // Root에서 확장 데이터 확인
-        const root = this.document.getRoot();
-        const rootExtras = root.getExtras();
-        console.log('🟢 - Root Extras:', rootExtras);
+          const root = this.document.getRoot();
+          const rootExtras = root.getExtras();
+          console.log('🟢 - Root Extras:', rootExtras);
+
+          // 모든 extensions 및 extras를 root extras로 복사 (확장 가시성/디버깅용)
+          const allExtras: any = {};
+          for (const ext of root.listExtensionsUsed()) {
+            const extName = ext.extensionName;
+            const instance = root.getExtension(extName);
+            if (instance) {
+              try {
+                allExtras[extName] = JSON.parse(JSON.stringify(instance));
+              } catch (e) {
+                console.warn(`🔶 ${extName} 직렬화 실패:`, e);
+              }
+            }
+          }
+          root.setExtras({
+            ...root.getExtras(),
+            ...allExtras
+          });
+          console.log('🟢 모든 확장 데이터를 Root Extras에 복사 완료:', root.getExtras());
         
         // Scene에서 VRM 관련 데이터 확인
         const scenes = root.listScenes();
@@ -91,6 +110,10 @@ export class GLTFDocumentManager {
       
       // Three.js Scene 생성
       this.threeScene = await this.createThreeScene();
+
+      // 실제 사용된 확장 목록 확인
+      const activeExtensions = this.getAllActiveExtensions();
+      console.log("🟢 실제 사용된 확장 목록 (노드/머티리얼 등 포함):", activeExtensions);
       
       return {
         document: this.document,
@@ -100,6 +123,38 @@ export class GLTFDocumentManager {
       console.error('glTF Document 로드 실패:', error);
       throw error;
     }
+  }
+
+  /**
+   * 실제로 장면 그래프 내부에서 사용된 확장 목록 수집
+   */
+  getAllActiveExtensions(): string[] {
+    if (!this.document) return [];
+
+    const found = new Set<string>();
+    const root = this.document.getRoot();
+    const declared = root.listExtensionsUsed().map(ext => ext.extensionName);
+
+    const checkExtensions = (obj: any) => {
+      for (const extName of declared) {
+        if (obj.getExtension && obj.getExtension(extName)) {
+          found.add(extName);
+          console.log('FOUND : ', extName)
+
+        }
+      }
+    };
+
+    root.listScenes().forEach(checkExtensions);
+    root.listNodes().forEach(checkExtensions);
+    root.listMeshes().forEach(checkExtensions);
+    root.listMaterials().forEach(checkExtensions);
+    root.listTextures().forEach(checkExtensions);
+    root.listAnimations().forEach(checkExtensions);
+    root.listAccessors().forEach(checkExtensions);
+    root.listBuffers().forEach(checkExtensions);
+
+    return Array.from(found);
   }
 
 // %%%%%LAST%%%%%
@@ -286,6 +341,22 @@ export class GLTFDocumentManager {
   }
 
   /**
+   * Document 변경사항을 Three.js에서 로드 가능한 URL로 변환
+   */
+  async getUpdatedModelURL(): Promise<string> {
+    try {
+      const glbBuffer = await this.exportToGLB()
+      const blob = new Blob([glbBuffer], { type: 'model/gltf-binary' })
+      const url = URL.createObjectURL(blob)
+      console.log('🟢 [MANAGER] Updated model URL created:', url)
+      return url
+    } catch (error) {
+      console.error('🔴 [MANAGER] Failed to generate updated model URL:', error)
+      throw error
+    }
+  }
+
+  /**
    * glTF 파일로 내보내기
    */
   async exportToGLB(): Promise<Uint8Array> {
@@ -313,7 +384,9 @@ export class GLTFDocumentManager {
         console.log('🟢 [EXPORT] Root extras 재설정 완료:', root.getExtras());
       }
 
-      const arrayBuffer = await this.io.writeBinary(this.document);
+      const arrayBuffer = await this.io.writeBinary(this.document, {
+        includeCustomExtensions: true
+      });
       console.log('🟢 [EXPORT] gltf-transform 내보내기 성공, 크기:', arrayBuffer.byteLength, 'bytes');
       
       return arrayBuffer;
@@ -327,29 +400,7 @@ export class GLTFDocumentManager {
    * Document 구조를 JSON으로 변환 (디버깅/UI용)
    */
   getDocumentStructure(): any {
-    if (!this.document) {
-      return null;
-    }
-    
-    const structure = {
-      scenes: this.document.getRoot().listScenes().map(scene => ({
-        name: scene.getName(),
-        nodes: scene.listChildren().map(node => this.nodeToStructure(node))
-      })),
-      animations: this.document.getRoot().listAnimations().map(anim => ({
-        name: anim.getName(),
-        duration: anim.listChannels().length > 0 ? 
-          Math.max(...anim.listChannels().map(ch => 
-            Math.max(...ch.getSampler()?.getInput()?.getArray() || [0])
-          )) : 0
-      })),
-      meshes: this.document.getRoot().listMeshes().map(mesh => ({
-        name: mesh.getName(),
-        primitives: mesh.listPrimitives().length
-      }))
-    };
-    
-    return structure;
+    return this.getGLTFJSONStructure();
   }
 
   /**
@@ -407,6 +458,41 @@ export class GLTFDocumentManager {
     this.document = null;
     this.threeScene = null;
     this.nodeMap.clear();
+  }
+
+  /**
+   * glTF 포맷에 맞는 전체 JSON 구조 반환
+   */
+  getGLTFJSONStructure(): any {
+    const doc = this.document as Document;
+    if (!doc || typeof doc.getAsset !== "function") {
+      console.warn("❌ getGLTFJSONStructure: document 타입 확인 필요:", doc);
+      return null;
+    }
+
+    const root = doc.getRoot();
+    const json: any = {
+      asset: doc.getAsset(),
+      extensionsUsed: root.listExtensionsUsed().map(ext => ext.extensionName),
+      extensionsRequired: root.listExtensionsRequired().map(ext => ext.extensionName),
+      extensions: {},
+      scenes: [], // 필요한 경우 구현
+      nodes: [],  // 필요한 경우 구현
+    };
+
+    for (const ext of root.listExtensionsUsed()) {
+      const name = ext.extensionName;
+      const instance = root.getExtension(name);
+      if (instance) {
+        try {
+          json.extensions[name] = JSON.parse(JSON.stringify(instance));
+        } catch (e) {
+          console.warn(`Extension ${name} 직렬화 실패:`, e);
+        }
+      }
+    }
+
+    return json;
   }
 }
 

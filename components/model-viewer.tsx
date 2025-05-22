@@ -10,6 +10,7 @@ import { AlertCircle, Play, Pause, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { GLTFDocumentManager } from "@/lib/gltf-document-manager"
+import { loadThreeGLTF, loadGLTFDocument } from "@/lib/model-loaders"
 
 interface ModelViewerProps {
   url: string
@@ -44,8 +45,6 @@ export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoa
   const animationFrameRef = useRef<number | null>(null)
   const urlRef = useRef<string>(url)
 
-  // GLTFDocumentManager 추가 (임시 비활성화)
-  // const documentManagerRef = useRef<GLTFDocumentManager | null>(null)
   const documentManagerRef = useRef<any>(null)
 
   // 애니메이션 상태 ref (클로저 문제 해결)
@@ -91,21 +90,14 @@ useEffect(() => {
   //   // ... 이하 생략
   // }, [modelStructure])
 
-  // 모델 로드 함수 - 기존 방식 유지
+
+  // 모델 로드 함수 - 리팩토링
   const loadModel = async (modelUrl: string) => {
     if (!sceneRef.current) {
-      console.warn("씬이 초기화되지 않았습니다.")
-      return
+      console.warn("씬이 초기화되지 않았습니다.");
+      return;
     }
-
-    const scene = sceneRef.current
-
-    // 기존 DocumentManager 정리 (임시 비활성화)
-    // if (documentManagerRef.current) {
-    //   documentManagerRef.current.dispose()
-    //   documentManagerRef.current = null
-    // }
-
+    const scene = sceneRef.current;
     // 씬의 모든 자식(시스템 객체 제외) 완전 제거 및 dispose (while 패턴)
     const systemTypes = [
       "GridHelper", "DirectionalLight", "AmbientLight", "HemisphereLight", "PointLight", "SpotLight", "CameraHelper"
@@ -118,29 +110,27 @@ useEffect(() => {
         if (child instanceof THREE.Object3D && typeof child.traverse === "function") {
           child.traverse((object: THREE.Object3D) => {
             if (object instanceof THREE.Mesh) {
-              if (object.geometry) object.geometry.dispose()
+              if (object.geometry) object.geometry.dispose();
               if (object.material) {
                 if (Array.isArray(object.material)) {
-                  object.material.forEach((material: THREE.Material) => material.dispose())
+                  object.material.forEach((material: THREE.Material) => material.dispose());
                 } else {
-                  (object.material as THREE.Material).dispose()
+                  (object.material as THREE.Material).dispose();
                 }
               }
             }
-          })
+          });
         }
         // remove하면 children 배열이 줄어드므로, i를 증가시키지 않음
       } else {
         i++;
       }
     }
-
     // 기존 모델 정리
     if (modelRef.current) {
       scene.remove(modelRef.current);
       modelRef.current = null;
     }
-
     // 애니메이션 정리
     if (mixerRef.current) {
       mixerRef.current.stopAllAction();
@@ -150,7 +140,6 @@ useEffect(() => {
       currentActionRef.current.stop();
       currentActionRef.current = null;
     }
-
     // 상태 초기화
     setAnimations([]);
     setCurrentAnimationIndex(-1);
@@ -159,178 +148,126 @@ useEffect(() => {
     setAnimationProgress(0);
     isPlayingRef.current = false;
     animationProgressRef.current = 0;
-
     try {
       console.log(`모델 로드 시작: ${modelUrl}`);
-      
       // 파일 다운로드
       const response = await fetch(modelUrl);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
       const arrayBuffer = await response.arrayBuffer();
       const file = new File([arrayBuffer], modelUrl.split('/').pop() || 'model.glb');
-      
       console.log('다운로드된 파일:', file.name, file.size, file.type);
 
       // 1. Three.js GLTFLoader로 실제 모델 로드 (화면 표시용)
-      console.log('Three.js GLTFLoader로 모델 로드...');
-      const loader = new GLTFLoader()
-      
-      // VRM 지원을 위한 플러그인 추가
-      loader.register((parser) => {
-        return new VRMLoaderPlugin(parser)
-      })
-
-      // 모델 로드
-      const gltf = await new Promise<any>((resolve, reject) => {
-        loader.load(
-          modelUrl,
-          (loadedGltf) => resolve(loadedGltf),
-          undefined,
-          (error) => reject(error)
-        )
-      })
-
-      console.log('Three.js 로드 성공:', gltf);
+      const gltf = await loadThreeGLTF(file, modelUrl);
 
       // 2. 백그라운드에서 GLTFDocumentManager로 Document 로드 (내보내기용)
-      try {
-        console.log('🟡 [LOAD] 백그라운드에서 GLTFDocumentManager Document 로드 시도...');
-        const manager = new GLTFDocumentManager();
-        await manager.loadFromFile(file);
-
-        // VRM 확장 정보를 extras에 반영
-        const root = manager.getDocument().getRoot();
-        const vrmExt = root.getExtension("VRMC_vrm");
-        const vrmMetaExt = root.getExtension("VRMC_vrm_meta");
-        if (vrmExt || vrmMetaExt) {
-          root.setExtras({
-            ...root.getExtras(),
-            vrm: vrmExt || null,
-            vrmMetadata: vrmMetaExt || null,
-          });
-          console.log("🟢 [LOAD] VRM 확장 정보를 extras에 반영 완료:", root.getExtras());
-        }
-
+      const manager = await loadGLTFDocument(file);
+      if (manager) {
         documentManagerRef.current = manager;
-        console.log('🟢 [LOAD] GLTFDocumentManager Document 로드 성공!');
-        console.log('🟢 [LOAD] Document:', manager.getDocument());
-        
-        // DocumentManager를 부모 컴포넌트에 전달
+        console.log("🟢 [MODEL-VIEWER] DocumentManager 생성 완료:", manager);
         if (onDocumentManagerReady) {
-          console.log('🟢 [LOAD] DocumentManager를 부모 컴포넌트에 전달');
           onDocumentManagerReady(manager);
         }
-      } catch (docError) {
-        console.warn('🔴 [LOAD] GLTFDocumentManager Document 로드 실패:', docError);
-        documentManagerRef.current = null;
-        console.log('🔴 [LOAD] documentManagerRef가 null로 설정됨 - Three.js 방식으로만 동작');
       }
 
       // VRM 데이터 확인
-      let vrm: VRM | null = null
+      let vrm: VRM | null = null;
       if (gltf.userData?.vrm) {
-        vrm = gltf.userData.vrm
-        console.log('VRM 데이터 발견:', vrm)
+        vrm = gltf.userData.vrm;
+        console.log('✅ VRM 데이터 발견:', vrm);
         
         // VRM humanoid 정보 출력
         if (vrm.humanoid) {
-          console.log('VRM Humanoid 본 정보:', vrm.humanoid.normalizedHumanBones)
+          console.log('VRM Humanoid 본 정보:', vrm.humanoid.normalizedHumanBones);
         }
-
+        
         // VRM의 정확한 위치 설정 (필요시)
-        VRMUtils.rotateVRM0(vrm)
-
+        VRMUtils.rotateVRM0(vrm);
+        
         // VRM 참조 저장
-        vrmRef.current = vrm
-
+        vrmRef.current = vrm;
+        
         // VRM 데이터를 부모에 전달
         if (onVRMLoaded) {
           onVRMLoaded(vrm, {
             title: vrm.meta?.title || '제목 없음',
             author: vrm.meta?.author || '작성자 불명',
             version: vrm.meta?.version || '버전 불명'
-          })
+          });
         }
+        
+        console.log('✅ VRM 로드 완료 - VRMA 드롭존 활성화됨');
       } else {
-        vrmRef.current = null
+        console.log('ℹ️ 일반 GLB 파일로 감지됨');
+        vrmRef.current = null;
         if (onVRMLoaded) {
-          onVRMLoaded(null)
+          onVRMLoaded(null);
         }
       }
-
+        
       // 씬에 모델 추가
-      const model = gltf.scene
-      model.name = 'exportableModel' // 내보내기를 위한 이름 설정
-      scene.add(model)
-      modelRef.current = model
-
+      const model = gltf.scene;
+      model.name = 'exportableModel'; // 내보내기를 위한 이름 설정
+      scene.add(model);
+      modelRef.current = model;
       // 모델 크기 조정 및 위치 조정
-      const box = new THREE.Box3().setFromObject(model)
-      const size = box.getSize(new THREE.Vector3()).length()
-      const center = box.getCenter(new THREE.Vector3())
-
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3()).length();
+      const center = box.getCenter(new THREE.Vector3());
       // 카메라 위치 조정
       if (cameraRef.current) {
-        const camera = cameraRef.current
-        camera.position.copy(center)
-        camera.position.x += size / 2.0
-        camera.position.y += size / 5.0
-        camera.position.z += size / 2.0
-        camera.lookAt(center)
+        const camera = cameraRef.current;
+        camera.position.copy(center);
+        camera.position.x += size / 2.0;
+        camera.position.y += size / 5.0;
+        camera.position.z += size / 2.0;
+        camera.lookAt(center);
       }
-
       // 애니메이션 처리
       if (gltf.animations && gltf.animations.length > 0) {
-        console.log(`${gltf.animations.length}개의 애니메이션 발견:`)
+        console.log(`${gltf.animations.length}개의 애니메이션 발견:`);
         gltf.animations.forEach((anim: THREE.AnimationClip, index: number) => {
-          console.log(`  ${index}: ${anim.name} (${anim.duration.toFixed(2)}초)`)
-        })
-
-        setAnimations(gltf.animations)
-        animationsRef.current = gltf.animations
-        setHasAnimations(true)
-
+          console.log(`  ${index}: ${anim.name} (${anim.duration.toFixed(2)}초)`);
+        });
+        setAnimations(gltf.animations);
+        animationsRef.current = gltf.animations;
+        setHasAnimations(true);
         if (onAnimationsLoaded) {
-          onAnimationsLoaded(gltf.animations)
+          onAnimationsLoaded(gltf.animations);
         }
-
         // AnimationMixer 설정
-        const mixer = new THREE.AnimationMixer(model)
-        mixerRef.current = mixer
-
+        const mixer = new THREE.AnimationMixer(model);
+        mixerRef.current = mixer;
         // 첫 번째 애니메이션 자동 재생
         if (gltf.animations.length > 0) {
-          setCurrentAnimationIndex(0)
-          const action = mixer.clipAction(gltf.animations[0])
-          action.reset()
-          action.setLoop(THREE.LoopRepeat, Infinity)
-          action.enabled = true
-          action.paused = false
-          action.play()
-          currentActionRef.current = action
-          isPlayingRef.current = true
-          setIsPlaying(true)
-          console.log(`첫 번째 애니메이션 '${gltf.animations[0].name}' 자동 재생 시작`)
+          setCurrentAnimationIndex(0);
+          const action = mixer.clipAction(gltf.animations[0]);
+          action.reset();
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.enabled = true;
+          action.paused = false;
+          action.play();
+          currentActionRef.current = action;
+          isPlayingRef.current = true;
+          setIsPlaying(true);
+          console.log(`첫 번째 애니메이션 '${gltf.animations[0].name}' 자동 재생 시작`);
         }
       } else {
-        console.log('애니메이션이 없습니다.')
-        setAnimations([])
-        setHasAnimations(false)
+        console.log('애니메이션이 없습니다.');
+        setAnimations([]);
+        setHasAnimations(false);
         if (onAnimationsLoaded) {
-          onAnimationsLoaded([])
+          onAnimationsLoaded([]);
         }
       }
-
-      setIsModelLoaded(true)
-      console.log('모델 로드 완료')
-
+      setIsModelLoaded(true);
+      console.log('모델 로드 완료');
     } catch (error) {
-      console.error("모델 로딩 오류:", error)
-      setError(`모델 로딩 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
-      setIsModelLoaded(false)
+      console.error("모델 로딩 오류:", error);
+      setError(`모델 로딩 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+      setIsModelLoaded(false);
     }
   }
 

@@ -137,13 +137,29 @@ export async function createAnimationClipFromVRMA(vrmAnimation: any, vrm: VRM): 
     console.log("📦 VRM 애니메이션 모듈:", module)
     console.log("모듈 내용:", Object.keys(module))
     
-    // 방법 1: createAnimationClip 스태틱 메서드 사용
+    // 방법 1: createVRMAnimationClip 함수 사용 (최신 API)
+    if (module.createVRMAnimationClip && typeof module.createVRMAnimationClip === 'function') {
+      console.log("✅ createVRMAnimationClip 함수 발견")
+      try {
+        const clip = module.createVRMAnimationClip(vrmAnimation, vrm)
+        if (clip && clip instanceof THREE.AnimationClip) {
+          console.log("✅ createVRMAnimationClip으로 성공!")
+          console.log("생성된 클립:", { name: clip.name, duration: clip.duration, tracks: clip.tracks.length })
+          return clip
+        }
+      } catch (e) {
+        console.log("createVRMAnimationClip 실패:", e)
+      }
+    }
+    
+    // 방법 2: createAnimationClip 스태틱 메서드 사용
     if (module.createAnimationClip && typeof module.createAnimationClip === 'function') {
       console.log("✅ createAnimationClip 함수 발견")
       try {
         const clip = module.createAnimationClip(vrmAnimation, vrm)
-        if (clip) {
+        if (clip && clip instanceof THREE.AnimationClip) {
           console.log("✅ createAnimationClip으로 성공!")
+          console.log("생성된 클립:", { name: clip.name, duration: clip.duration, tracks: clip.tracks.length })
           return clip
         }
       } catch (e) {
@@ -151,118 +167,158 @@ export async function createAnimationClipFromVRMA(vrmAnimation: any, vrm: VRM): 
       }
     }
     
-    // 방법 2: VRMAnimation 클래스 확인
-    if (module.VRMAnimation) {
-      console.log("VRMAnimation 클래스:", module.VRMAnimation)
-      console.log("VRMAnimation 프로토타입:", Object.getOwnPropertyNames(module.VRMAnimation.prototype))
+    // 방법 3: VRMAnimation 클래스 확인
+    if (module.VRMAnimation && vrmAnimation instanceof module.VRMAnimation) {
+      console.log("✅ VRMAnimation 인스턴스 확인됨")
       
-      // 인스턴스 메서드 확인
-      if (vrmAnimation instanceof module.VRMAnimation) {
-        console.log("✅ VRMAnimation 인스턴스 확인됨")
-        
-        // createAnimationClip 인스턴스 메서드
-        if (typeof vrmAnimation.createAnimationClip === 'function') {
-          console.log("✅ 인스턴스 createAnimationClip 메서드 발견")
-          try {
-            const clip = vrmAnimation.createAnimationClip(vrm)
-            if (clip) {
-              console.log("✅ 인스턴스 메서드로 성공!")
-              return clip
-            }
-          } catch (e) {
-            console.log("인스턴스 메서드 실패:", e)
-          }
-        }
-        
-        // toAnimationClip 인스턴스 메서드
-        if (typeof vrmAnimation.toAnimationClip === 'function') {
-          console.log("✅ 인스턴스 toAnimationClip 메서드 발견")
-          try {
-            const clip = vrmAnimation.toAnimationClip(vrm)
-            if (clip) {
-              console.log("✅ toAnimationClip 메서드로 성공!")
-              return clip
-            }
-          } catch (e) {
-            console.log("toAnimationClip 메서드 실패:", e)
-          }
-        }
-      }
-      
-      // 스태틱 메서드 확인
-      const staticMethods = Object.getOwnPropertyNames(module.VRMAnimation)
-      console.log("VRMAnimation 스태틱 메서드들:", staticMethods)
-      
-      for (const methodName of staticMethods) {
-        if (methodName.toLowerCase().includes('create') || methodName.toLowerCase().includes('clip')) {
-          const method = module.VRMAnimation[methodName]
-          if (typeof method === 'function') {
-            console.log(`✅ 스태틱 메서드 ${methodName} 시도`)
-            try {
-              const clip = method(vrmAnimation, vrm)
-              if (clip instanceof THREE.AnimationClip) {
-                console.log(`✅ ${methodName}으로 성공!`)
-                return clip
-              }
-            } catch (e) {
-              console.log(`${methodName} 실패:`, e)
-            }
-          }
-        }
-      }
-    }
-    
-    // 방법 3: 모든 export된 함수 확인
-    for (const exportName in module) {
-      const exportValue = module[exportName]
-      if (typeof exportValue === 'function' && 
-          (exportName.toLowerCase().includes('create') || 
-           exportName.toLowerCase().includes('anim') || 
-           exportName.toLowerCase().includes('clip'))) {
-        console.log(`✅ export 함수 ${exportName} 시도`)
+      // createAnimationClip 인스턴스 메서드
+      if (typeof vrmAnimation.createAnimationClip === 'function') {
+        console.log("✅ 인스턴스 createAnimationClip 메서드 발견")
         try {
-          let clip;
-          // 클래스(생성자)인지 함수인지 판별
-          if (
-            typeof exportValue === "function" &&
-            exportValue.prototype &&
-            exportValue.prototype.constructor === exportValue
-          ) {
-            // 클래스면 new로 생성
-            clip = new exportValue(vrmAnimation, vrm);
-          } else {
-            // 함수면 그냥 호출
-            clip = exportValue(vrmAnimation, vrm);
-          }
-          if (clip instanceof THREE.AnimationClip) {
-            console.log(`✅ ${exportName}으로 성공!`)
+          const clip = vrmAnimation.createAnimationClip(vrm)
+          if (clip && clip instanceof THREE.AnimationClip) {
+            console.log("✅ 인스턴스 메서드로 성공!")
+            console.log("생성된 클립:", { name: clip.name, duration: clip.duration, tracks: clip.tracks.length })
             return clip
           }
         } catch (e) {
-          console.log(`${exportName} 실패:`, e)
+          console.log("인스턴스 메서드 실패:", e)
         }
       }
     }
 
-    // 방법 4: 더미 트랙으로 기본 AnimationClip 생성
-    console.log("🔨 더미 AnimationClip 생성...")
-    const duration = vrmAnimation.duration || 0
+    // 방법 4: 원본 GLTF 애니메이션을 VRM에 맞게 리맵핑
+    console.log("🔄 GLTF 애니메이션 데이터 직접 처리 시도...")
     
-    if (duration > 0) {
-      // 고유한 이름 생성 (타임스탬프 추가)
-      const uniqueName = `VRMAAnimation_${Date.now()}`
-      // 빈 트랙 배열로라도 기본 클립 생성
-      const animationClip = new THREE.AnimationClip(uniqueName, duration, [])
-      console.log(`✅ 더미 AnimationClip 생성: ${uniqueName}, ${duration}초`)
-      return animationClip
+    // vrmAnimation에서 실제 GLTF AnimationClip 추출
+    let sourceClip: THREE.AnimationClip | null = null;
+    
+    // vrmAnimation 객체에서 tracks나 애니메이션 데이터 찾기
+    if (vrmAnimation.tracks && Array.isArray(vrmAnimation.tracks)) {
+      console.log("✅ vrmAnimation.tracks 발견:", vrmAnimation.tracks.length)
+      sourceClip = new THREE.AnimationClip(
+        vrmAnimation.name || `VRMAAnimation_${Date.now()}`,
+        vrmAnimation.duration || -1,
+        vrmAnimation.tracks
+      )
+    } else if (vrmAnimation.clip && vrmAnimation.clip instanceof THREE.AnimationClip) {
+      console.log("✅ vrmAnimation.clip 발견")
+      sourceClip = vrmAnimation.clip
+    } else if (vrmAnimation instanceof THREE.AnimationClip) {
+      console.log("✅ vrmAnimation이 직접 AnimationClip")
+      sourceClip = vrmAnimation
+    }
+    
+    if (sourceClip && sourceClip.tracks.length > 0) {
+      console.log("✅ 소스 클립 발견:", {
+        name: sourceClip.name,
+        duration: sourceClip.duration,
+        tracks: sourceClip.tracks.length
+      })
+      
+      // VRM의 humanoid 본 매핑 정보 가져오기
+      const humanoidBones = vrm.humanoid?.humanBones
+      if (!humanoidBones) {
+        console.warn("❌ VRM humanoid 정보가 없습니다")
+        return sourceClip // 그래도 원본 클립 반환
+      }
+      
+      // 트랙 리맵핑: VRMA 본 이름을 VRM 본 이름으로 변환
+      const remappedTracks: THREE.KeyframeTrack[] = []
+      
+      for (const track of sourceClip.tracks) {
+        console.log("🔍 트랙 처리:", track.name)
+        
+        // 트랙 이름에서 본 이름 추출 (예: "mixamorig:Hips.position" -> "Hips")
+        const boneName = extractBoneNameFromTrack(track.name)
+        console.log("추출된 본 이름:", boneName)
+        
+        // humanoid 매핑에서 해당하는 VRM 본 찾기
+        const vrmBone = findVRMBoneByName(humanoidBones, boneName)
+        
+        if (vrmBone) {
+          // 새로운 트랙 이름으로 변경
+          const property = track.name.split('.').pop() // "position", "quaternion", "scale"
+          const newTrackName = `${vrmBone.node.name}.${property}`
+          
+          console.log(`✅ 본 매핑: ${boneName} -> ${vrmBone.node.name}`)
+          
+          // 새로운 트랙 생성
+          const RemappedTrack = track.clone()
+          RemappedTrack.name = newTrackName
+          remappedTracks.push(RemappedTrack)
+        } else {
+          console.log(`❌ 매핑되지 않은 본: ${boneName}`)
+        }
+      }
+      
+      if (remappedTracks.length > 0) {
+        const remappedClip = new THREE.AnimationClip(
+          sourceClip.name + "_VRM",
+          sourceClip.duration,
+          remappedTracks
+        )
+        console.log("✅ VRM 리맵핑 클립 생성 완료:", {
+          name: remappedClip.name,
+          duration: remappedClip.duration,
+          tracks: remappedClip.tracks.length
+        })
+        return remappedClip
+      }
+      
+      // 리맵핑 실패시 원본 클립 반환
+      console.log("⚠️ 리맵핑 실패, 원본 클립 반환")
+      return sourceClip
     }
 
-    console.error("❌ 모든 방법으로 AnimationClip 생성 실패")
+    console.error("❌ 유효한 애니메이션 데이터를 찾을 수 없습니다")
     return null
   } catch (error) {
     console.error("❌ AnimationClip 생성 중 오류:", error)
     return null
   }
+}
+
+// 헬퍼 함수: 트랙 이름에서 본 이름 추출
+function extractBoneNameFromTrack(trackName: string): string {
+  // 예시: "mixamorig:Hips.position" -> "Hips"
+  // 예시: "Armature|mixamorig:Spine.quaternion" -> "Spine"
+  const parts = trackName.split(/[.:]/)
+  if (parts.length >= 2) {
+    const bonePart = parts[parts.length - 2] // 마지막에서 두 번째 부분
+    return bonePart.replace(/^mixamorig:?/, '').trim()
+  }
+  return trackName.split('.')[0] // 기본 fallback
+}
+
+// 헬퍼 함수: humanoid 매핑에서 본 이름으로 VRM 본 찾기
+function findVRMBoneByName(humanoidBones: any, boneName: string): any {
+  // 정확한 매핑 테이블
+  const boneMapping: { [key: string]: string } = {
+    'Hips': 'hips',
+    'Spine': 'spine',
+    'Spine1': 'chest',
+    'Spine2': 'upperChest',
+    'Neck': 'neck',
+    'Head': 'head',
+    'LeftShoulder': 'leftShoulder',
+    'LeftArm': 'leftUpperArm',
+    'LeftForeArm': 'leftLowerArm',
+    'LeftHand': 'leftHand',
+    'RightShoulder': 'rightShoulder',
+    'RightArm': 'rightUpperArm',
+    'RightForeArm': 'rightLowerArm',
+    'RightHand': 'rightHand',
+    'LeftUpLeg': 'leftUpperLeg',
+    'LeftLeg': 'leftLowerLeg',
+    'LeftFoot': 'leftFoot',
+    'RightUpLeg': 'rightUpperLeg',
+    'RightLeg': 'rightLowerLeg',
+    'RightFoot': 'rightFoot'
+  }
+  
+  const humanoidName = boneMapping[boneName] || boneName.toLowerCase()
+  return humanoidBones[humanoidName] || null
 }
 
 /**
