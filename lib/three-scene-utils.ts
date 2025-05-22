@@ -13,8 +13,18 @@ export function cloneObject3DRecursive(source: THREE.Object3D): THREE.Object3D {
   // Three.js의 clone 메서드로 기본 복제
   const cloned = source.clone(true)
   
+  // 복제본에 isBone 프로퍼티 복사 (모든 Bone 타입 객체에 적용)
+  if (source.type === "Bone") {
+    (cloned as any).isBone = true;
+  }
+  
   // 메시의 지오메트리와 머티리얼 별도 복제 (참조 공유 방지)
   cloned.traverse((child) => {
+    // Bone 타입 객체는 항상 isBone 플래그 설정 - GLTFLoader 호환성을 위해 필수
+    if (child.type === "Bone") {
+      (child as any).isBone = true;
+    }
+    
     if (child instanceof THREE.Mesh) {
       // 지오메트리 복제
       if (child.geometry) {
@@ -32,11 +42,42 @@ export function cloneObject3DRecursive(source: THREE.Object3D): THREE.Object3D {
     }
     
     // 스키닝된 메시의 본 참조 업데이트
-    if (child instanceof THREE.SkinnedMesh) {
-      const bones = child.skeleton.bones.map(bone => 
-        cloned.getObjectByName(bone.name) || bone
-      )
-      child.skeleton = new THREE.Skeleton(bones, child.skeleton.boneInverses)
+    if (child instanceof THREE.SkinnedMesh && child.skeleton) {
+      try {
+        // 1. 각 본을 찾아서 새로운 본 배열 생성
+        const bones = child.skeleton.bones.map(bone => {
+          const found = cloned.getObjectByName(bone.name);
+          if (found && (found.type === "Bone" || found instanceof THREE.Bone)) {
+            // isBone 등 내부 플래그 복사 - GLTFLoader와 호환되도록 보장
+            (found as any).isBone = true;
+            return found;
+          } else if (bone.type === "Bone" || bone instanceof THREE.Bone) {
+            // fallback: 원본 bone을 clone해서 추가
+            const newBone = bone.clone(true);
+            (newBone as any).isBone = true;
+            return newBone;
+          } else {
+            // fallback: 새 Bone 생성
+            const newBone = new THREE.Bone();
+            (newBone as any).isBone = true;
+            newBone.name = bone.name || "bone_" + Math.random().toString(36).substr(2, 9);
+            return newBone;
+          }
+        });
+        
+        // 2. 원본 boneInverses 복제
+        const boneInverses = child.skeleton.boneInverses.map(matrix => matrix.clone());
+        
+        // 3. 새로운 스켈레톤 생성 (복제된 본과 행렬 사용)
+        child.skeleton = new THREE.Skeleton(bones, boneInverses);
+        
+        // 4. 모든 본에 isBone 플래그 설정 (호환성 보장)
+        child.skeleton.bones.forEach(bone => {
+          (bone as any).isBone = true;
+        });
+      } catch (error) {
+        console.error("스켈레톤 복제 중 오류:", error);
+      }
     }
   })
   

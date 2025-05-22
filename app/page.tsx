@@ -9,47 +9,30 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, Undo2, Redo2 } from "lucide-react"
 
 // 상단에 import 추가
-import { createPasteResult, deleteNodeFromStructure } from "@/lib/model-utils"
-import { loadVRMAAnimation, createAnimationClipFromVRMA, isVRMACompatible } from "@/lib/vrma-utils"
+import { createPasteResult } from "@/lib/model-utils"
 import { Button } from "@/components/ui/button"
 import { HistoryManager } from "@/lib/history-manager"
 import { ModelDownloadButton } from "@/components/model-download-button"
 import { VRMADropZone } from "@/components/vrma-drop-zone"
 import * as THREE from "three"
 import type { VRM } from "@pixiv/three-vrm"
-
-// 간단한 toast 대체 함수
-const showMessage = (title: string, description: string, type: "success" | "error" = "success") => {
-  console.log(`${title}: ${description}`)
-  // 개발 중에는 console.log로 대체
-}
+import { showMessage } from "../lib/showMessage"
+import { useModel } from "../hooks/useModel"
 
 // MemoizedToaster 제거
 
 export default function Home() {
-  const [leftModel, setLeftModel] = useState<{
-    file: File | null
-    structure: any
-    url: string | null
-    error: string | null
-  }>({
-    file: null,
-    structure: null,
-    url: null,
-    error: null,
-  })
+  // 히스토리 매니저 추가
+  const [historyManager] = useState(() => new HistoryManager(50))
 
-  const [rightModel, setRightModel] = useState<{
-    file: File | null
-    structure: any
-    url: string | null
-    error: string | null
-  }>({
-    file: null,
-    structure: null,
-    url: null,
-    error: null,
-  })
+  const left = useModel(historyManager, "left");
+  const right = useModel(historyManager, "right");
+
+  // GLTFDocumentManager 참조 추가 (임시 비활성화)
+  // const leftDocumentManagerRef = useRef<GLTFDocumentManager | null>(null);
+  // const rightDocumentManagerRef = useRef<GLTFDocumentManager | null>(null);
+  const leftDocumentManagerRef = useRef<any>(null);
+  const rightDocumentManagerRef = useRef<any>(null);
 
   const [clipboard, setClipboard] = useState<{
     data: any
@@ -61,9 +44,6 @@ export default function Home() {
 
   // useState 부분에 pasteMode 상태 추가
   const [pasteMode, setPasteMode] = useState<"add" | "replace">("add")
-
-  // 히스토리 매니저 추가
-  const [historyManager] = useState(() => new HistoryManager(50))
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
@@ -71,15 +51,6 @@ export default function Home() {
   const leftSceneRef = useRef<THREE.Scene | null>(null)
   const rightSceneRef = useRef<THREE.Scene | null>(null)
 
-  // VRM 참조 상태 추가
-  const [leftVRM, setLeftVRM] = useState<VRM | null>(null)
-  const [rightVRM, setRightVRM] = useState<VRM | null>(null)
-
-  // VRMA 애니메이션 상태 추가
-  const [leftVRMAFile, setLeftVRMAFile] = useState<File | null>(null)
-  const [rightVRMAFile, setRightVRMAFile] = useState<File | null>(null)
-  const [leftVRMAName, setLeftVRMAName] = useState<string | null>(null)
-  const [rightVRMAName, setRightVRMAName] = useState<string | null>(null)
 
   // Scene 상태 (리렌더링 트리거용)
   const [leftScene, setLeftScene] = useState<THREE.Scene | null>(null)
@@ -117,7 +88,7 @@ export default function Home() {
   useEffect(() => {
     setCanUndo(historyManager.canUndo())
     setCanRedo(historyManager.canRedo())
-  }, [leftModel, rightModel, historyManager])
+  }, [left.model, right.model, historyManager])
 
   // 실행 취소 함수
   const handleUndo = () => {
@@ -125,9 +96,9 @@ export default function Home() {
     if (!action) return
 
     if (action.targetSide === "left") {
-      setLeftModel((prev) => ({ ...prev, structure: action.prevState }))
+      left.setModel((prev) => ({ ...prev, structure: action.prevState }))
     } else {
-      setRightModel((prev) => ({ ...prev, structure: action.prevState }))
+      right.setModel((prev) => ({ ...prev, structure: action.prevState }))
     }
 
     showMessage("실행 취소", action.description)
@@ -139,63 +110,25 @@ export default function Home() {
     if (!action) return
 
     if (action.targetSide === "left") {
-      setLeftModel((prev) => ({ ...prev, structure: action.newState }))
+      left.setModel((prev) => ({ ...prev, structure: action.newState }))
     } else {
-      setRightModel((prev) => ({ ...prev, structure: action.newState }))
+      right.setModel((prev) => ({ ...prev, structure: action.newState }))
     }
 
     showMessage("다시 실행", action.description)
   }
 
-  // 왼쪽 모델 삭제 핸들러
-  const handleLeftDelete = (path: string[]) => {
-    if (!leftModel.structure) return
 
-    const prevState = leftModel.structure
-    const result = deleteNodeFromStructure(leftModel.structure, path)
+  // DocumentManager 준비 핸들러들
+  const handleLeftDocumentManagerReady = useCallback((manager: any) => {
+    leftDocumentManagerRef.current = manager;
+    console.log("🟢 [PAGE] Left DocumentManager ready and saved:", manager);
+  }, []);
 
-    if (result.success) {
-      // 히스토리에 작업 추가
-      historyManager.addAction({
-        type: "delete",
-        targetSide: "left",
-        path,
-        prevState,
-        newState: result.result,
-        description: `모델 A에서 '${path[path.length - 1] || "root"}' 노드 삭제`,
-      })
-
-      setLeftModel({ ...leftModel, structure: result.result })
-      showMessage("노드 삭제", result.message)
-    } else {
-      showMessage("삭제 실패", result.message, "error")
-    }
-  }
-
-  // 오른쪽 모델 삭제 핸들러
-  const handleRightDelete = (path: string[]) => {
-    if (!rightModel.structure) return
-
-    const prevState = rightModel.structure
-    const result = deleteNodeFromStructure(rightModel.structure, path)
-
-    if (result.success) {
-      // 히스토리에 작업 추가
-      historyManager.addAction({
-        type: "delete",
-        targetSide: "right",
-        path,
-        prevState,
-        newState: result.result,
-        description: `모델 B에서 '${path[path.length - 1] || "root"}' 노드 삭제`,
-      })
-
-      setRightModel({ ...rightModel, structure: result.result })
-      showMessage("노드 삭제", result.message)
-    } else {
-      showMessage("삭제 실패", result.message, "error")
-    }
-  }
+  const handleRightDocumentManagerReady = useCallback((manager: any) => {
+    rightDocumentManagerRef.current = manager;
+    console.log("🟢 [PAGE] Right DocumentManager ready and saved:", manager);
+  }, []);
 
   // 왼쪽 씬 준비 핸들러 - 안정화
   const handleLeftSceneReady = useCallback((scene: THREE.Scene) => {
@@ -209,164 +142,6 @@ export default function Home() {
     handleRightSceneChange(scene)
   }, [handleRightSceneChange])
 
-  // 왼쪽 모델 애니메이션 로드 핸들러
-  const handleLeftAnimationsLoaded = useCallback((animations: THREE.AnimationClip[]) => {
-    console.log("왼쪽 모델 애니메이션 로드됨:", animations.length)
-    setLeftModel(prev => ({
-      ...prev,
-      structure: {
-        ...prev.structure,
-        animations: animations
-      }
-    }))
-  }, [])
-
-  // 오른쪽 모델 애니메이션 로드 핸들러
-  const handleRightAnimationsLoaded = useCallback((animations: THREE.AnimationClip[]) => {
-    console.log("오른쪽 모델 애니메이션 로드됨:", animations.length)
-    setRightModel(prev => ({
-      ...prev,
-      structure: {
-        ...prev.structure,
-        animations: animations
-      }
-    }))
-  }, [])
-
-  // VRM 로드 핸들러들
-  const handleLeftVRMLoaded = useCallback((vrm: VRM | null) => {
-    setLeftVRM(vrm)
-    console.log("왼쪽 VRM 로드됨:", vrm ? "VRM 모델" : "일반 모델")
-  }, [])
-
-  const handleRightVRMLoaded = useCallback((vrm: VRM | null) => {
-    setRightVRM(vrm)
-    console.log("오른쪽 VRM 로드됨:", vrm ? "VRM 모델" : "일반 모델")
-  }, [])
-
-  // VRMA 애니메이션 로드 핸들러들
-  const handleLeftVRMALoaded = useCallback((file: File, animationName: string) => {
-    console.log("🎬 handleLeftVRMALoaded 호출됨", { fileName: file.name, animationName })
-    setLeftVRMAFile(file)
-    setLeftVRMAName(animationName)
-    console.log("✅ 왼쪽 VRMA 상태 업데이트 완료")
-  }, [])
-
-  const handleRightVRMALoaded = useCallback((file: File, animationName: string) => {
-    console.log("🎬 handleRightVRMALoaded 호출됨", { fileName: file.name, animationName })
-    setRightVRMAFile(file)
-    setRightVRMAName(animationName)
-    console.log("✅ 오른쪽 VRMA 상태 업데이트 완료")
-  }, [])
-
-  // VRMA 애니메이션 적용 핸들러들
-  const handleLeftVRMAApply = useCallback(async () => {
-    console.log("🎬 handleLeftVRMAApply 시작")
-    console.log("VRM 상태:", leftVRM ? "로드됨" : "없음")
-    console.log("VRMA 파일 상태:", leftVRMAFile ? leftVRMAFile.name : "없음")
-    
-    if (!leftVRM || !leftVRMAFile) {
-      console.error("❌ 필수 데이터 누락", { vrm: !!leftVRM, vrmaFile: !!leftVRMAFile })
-      showMessage("애니메이션 적용 실패", "VRM 모델과 VRMA 파일이 모두 필요합니다.", "error")
-      return
-    }
-
-    console.log("🔍 VRM 호환성 검사 시작...")
-    if (!isVRMACompatible(leftVRM)) {
-      console.error("❌ VRM 호환성 실패")
-      showMessage("호환성 오류", "이 VRM 모델은 VRMA 애니메이션과 호환되지 않습니다.", "error")
-      return
-    }
-    console.log("✅ VRM 호환성 검사 통과")
-
-    try {
-      console.log("🎬 VRMA 애니메이션 로드 시작...")
-      const vrmaAnimation = await loadVRMAAnimation(leftVRMAFile)
-      console.log("✅ VRMA 애니메이션 로드 완료:", vrmaAnimation)
-      
-      if (vrmaAnimation) {
-        console.log("🔧 AnimationClip 생성 시작...")
-        const animationClip = await createAnimationClipFromVRMA(vrmaAnimation, leftVRM)
-        console.log("AnimationClip 결과:", animationClip)
-        
-        if (animationClip) {
-          console.log("✅ AnimationClip 생성 성공, 모델 구조 업데이트 중...")
-          // 모델 구조에 새 애니메이션 추가
-          setLeftModel(prev => {
-            const currentAnimations = prev.structure?.animations || []
-            const newStructure = {
-              ...prev,
-              structure: {
-                ...prev.structure,
-                animations: Array.isArray(currentAnimations) 
-                  ? [...currentAnimations, animationClip]
-                  : [animationClip]
-              }
-            }
-            console.log("📊 업데이트된 구조:", newStructure)
-            return newStructure
-          })
-          
-          showMessage("애니메이션 적용 성공", `${leftVRMAName} 애니메이션이 적용되었습니다.`)
-          console.log("🎉 왼쪽 VRMA 적용 완료!")
-        } else {
-          console.error("❌ AnimationClip 생성 실패")
-          showMessage("애니메이션 적용 실패", "AnimationClip 생성에 실패했습니다.", "error")
-        }
-      } else {
-        console.error("❌ vrmaAnimation이 null/undefined")
-        showMessage("애니메이션 적용 실패", "VRMA 애니메이션 로드 결과가 비어있습니다.", "error")
-      }
-    } catch (error) {
-      console.error("❌ VRMA 적용 전체 오류:", error)
-      console.error("에러 스택:", error instanceof Error ? error.stack : "No stack")
-      showMessage("애니메이션 적용 실패", error instanceof Error ? error.message : "알 수 없는 오류", "error")
-    }
-  }, [leftVRM, leftVRMAFile, leftVRMAName])
-
-  const handleRightVRMAApply = useCallback(async () => {
-    if (!rightVRM || !rightVRMAFile) {
-      showMessage("애니메이션 적용 실패", "VRM 모델과 VRMA 파일이 모두 필요합니다.", "error")
-      return
-    }
-
-    if (!isVRMACompatible(rightVRM)) {
-      showMessage("호환성 오류", "이 VRM 모델은 VRMA 애니메이션과 호환되지 않습니다.", "error")
-      return
-    }
-
-    try {
-      console.log("오른쪽 VRMA 애니메이션 적용 중...")
-      const vrmaAnimation = await loadVRMAAnimation(rightVRMAFile)
-      
-      if (vrmaAnimation) {
-        const animationClip = await createAnimationClipFromVRMA(vrmaAnimation, rightVRM)
-        
-        if (animationClip) {
-          // 모델 구조에 새 애니메이션 추가
-          setRightModel(prev => {
-            const currentAnimations = prev.structure?.animations || []
-            return {
-              ...prev,
-              structure: {
-                ...prev.structure,
-                animations: Array.isArray(currentAnimations) 
-                  ? [...currentAnimations, animationClip]
-                  : [animationClip]
-              }
-            }
-          })
-          
-          showMessage("애니메이션 적용 성공", `${rightVRMAName} 애니메이션이 적용되었습니다.`)
-        } else {
-          showMessage("애니메이션 적용 실패", "AnimationClip 생성에 실패했습니다.", "error")
-        }
-      }
-    } catch (error) {
-      console.error("VRMA 적용 오류:", error)
-      showMessage("애니메이션 적용 실패", error instanceof Error ? error.message : "알 수 없는 오류", "error")
-    }
-  }, [rightVRM, rightVRMAFile, rightVRMAName])
 
   return (
     <main className="container mx-auto p-4">
@@ -402,21 +177,24 @@ export default function Home() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">모델 A</h2>
 
-            {/* 다운로드 버튼 추가 */}
+            {/* 다운로드 버튼 */}
             <ModelDownloadButton
               scene={leftSceneRef.current}
-              fileName={leftModel.file?.name || "model_a.glb"}
-              disabled={!leftModel.structure}
-              modelStructure={leftModel.structure}
+              fileName={left.model.file?.name || "model_a"}
+              disabled={!left.model.structure}
+              modelStructure={left.model.structure}
+              vrmData={left.vrm?.userData}
+              isVRM={!!left.vrm}
+              documentManager={leftDocumentManagerRef.current}
             />
           </div>
 
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
-              setLeftModel({ file, structure, url, error })
+              left.setModel({ file, structure, url, error })
               // 새 모델 로드 시 VRMA 관련 상태 초기화
-              setLeftVRMAFile(null)
-              setLeftVRMAName(null)
+              left.setVRMAFile(null)
+              left.setVRMAName(null)
               // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
@@ -426,23 +204,24 @@ export default function Home() {
           {/* VRMA 애니메이션 드롭존 추가 */}
           <div className="mt-3">
             <VRMADropZone
-              onAnimationLoaded={handleLeftVRMALoaded}
-              onAnimationApply={handleLeftVRMAApply}
-              isVRMLoaded={!!leftVRM}
-              loadedAnimationName={leftVRMAName}
+              onAnimationLoaded={left.handleVRMALoaded}
+              onAnimationApply={left.handleVRMAApply}
+              isVRMLoaded={!!left.vrm}
+              loadedAnimationName={left.vrmaName}
+              disabled={!left.vrm}
             />
           </div>
 
-          {leftModel.structure && (
+          {left.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
               {/* 기존 모델 구조 트리 */}
               <ModelTree
-                structure={leftModel.structure}
+                structure={left.model.structure}
                 onCopy={(data) => setClipboard({ data, source: "left" })}
                 onPaste={(path) => {
                   if (clipboard.data && clipboard.source === "right") {
-                    const prevState = leftModel.structure
-                    const result = createPasteResult(clipboard.data, leftModel.structure, path, pasteMode)
+                    const prevState = left.model.structure
+                    const result = createPasteResult(clipboard.data, left.model.structure, path, pasteMode)
 
                     if (result.success) {
                       historyManager.addAction({
@@ -472,8 +251,8 @@ export default function Home() {
                         }
                         
                         const currentAnimations = result.result.animations || []
-                        setLeftModel({
-                          ...leftModel,
+                        left.setModel({
+                          ...left.model,
                           structure: {
                             ...result.result,
                             animations: Array.isArray(currentAnimations) 
@@ -483,7 +262,7 @@ export default function Home() {
                         })
                         showMessage("애니메이션 붙여넣기 성공", result.message)
                       } else {
-                        setLeftModel({ ...leftModel, structure: result.result })
+                        left.setModel({ ...left.model, structure: result.result })
                         showMessage("붙여넣기 성공", result.message)
                       }
                     } else {
@@ -491,9 +270,9 @@ export default function Home() {
                     }
                   }
                 }}
-                onDelete={handleLeftDelete}
+                onDelete={left.handleDelete}
                 side="left"
-                otherSideHasData={!!rightModel.structure}
+                otherSideHasData={!!right.model.structure}
                 clipboard={clipboard}
               />
               
@@ -510,20 +289,21 @@ export default function Home() {
           )}
 
           <div className="h-64 mt-4 border rounded">
-            {leftModel.url ? (
-              leftModel.error ? (
+            {left.model.url ? (
+              left.model.error ? (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{leftModel.error}</AlertDescription>
+                  <AlertDescription>{left.model.error}</AlertDescription>
                 </Alert>
               ) : (
                 <ModelViewer
-                  url={leftModel.url}
-                  modelStructure={leftModel.structure}
+                  url={left.model.url}
+                  modelStructure={left.model.structure}
                   onSceneReady={handleLeftSceneReady}
-                  onAnimationsLoaded={handleLeftAnimationsLoaded}
-                  onVRMLoaded={handleLeftVRMLoaded}
+                  onAnimationsLoaded={left.handleAnimationsLoaded}
+                  onVRMLoaded={left.handleVRMLoaded}
+                  onDocumentManagerReady={handleLeftDocumentManagerReady}
                 />
               )
             ) : (
@@ -540,20 +320,24 @@ export default function Home() {
             <h2 className="text-xl font-semibold">모델 B</h2>
 
             {/* 다운로드 버튼 추가 */}
+            {/* 다운로드 버튼 */}
             <ModelDownloadButton
               scene={rightSceneRef.current}
-              fileName={rightModel.file?.name || "model_b.glb"}
-              disabled={!rightModel.structure}
-              modelStructure={rightModel.structure}
+              fileName={right.model.file?.name || "model_b"}
+              disabled={!right.model.structure}
+              modelStructure={right.model.structure}
+              vrmData={right.vrm?.userData}
+              isVRM={!!right.vrm}
+              documentManager={rightDocumentManagerRef.current}
             />
           </div>
 
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
-              setRightModel({ file, structure, url, error })
+              right.setModel({ file, structure, url, error })
               // 새 모델 로드 시 VRMA 관련 상태 초기화
-              setRightVRMAFile(null)
-              setRightVRMAName(null)
+              right.setVRMAFile(null)
+              right.setVRMAName(null)
               // 씬 객체는 그대로 두고, 기존 씬의 children만 모두 정리(시스템 객체 제외)는 model-viewer.tsx에서 처리
               // 새 모델 로드 시 히스토리 초기화
               historyManager.clear()
@@ -563,23 +347,23 @@ export default function Home() {
           {/* VRMA 애니메이션 드롭존 추가 */}
           <div className="mt-3">
             <VRMADropZone
-              onAnimationLoaded={handleRightVRMALoaded}
-              onAnimationApply={handleRightVRMAApply}
-              isVRMLoaded={!!rightVRM}
-              loadedAnimationName={rightVRMAName}
+              onAnimationLoaded={right.handleVRMALoaded}
+              onAnimationApply={right.handleVRMAApply}
+              isVRMLoaded={!!right.vrm}
+              loadedAnimationName={right.vrmaName}
             />
           </div>
 
-          {rightModel.structure && (
+          {right.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
               {/* 기존 모델 구조 트리 */}
               <ModelTree
-                structure={rightModel.structure}
+                structure={right.model.structure}
                 onCopy={(data) => setClipboard({ data, source: "right" })}
                 onPaste={(path) => {
                   if (clipboard.data && clipboard.source === "left") {
-                    const prevState = rightModel.structure
-                    const result = createPasteResult(clipboard.data, rightModel.structure, path, pasteMode)
+                    const prevState = right.model.structure
+                    const result = createPasteResult(clipboard.data, right.model.structure, path, pasteMode)
 
                     if (result.success) {
                       historyManager.addAction({
@@ -591,16 +375,16 @@ export default function Home() {
                         description: `모델 A에서 모델 B로 '${clipboard.data.path[clipboard.data.path.length - 1] || "root"}' 노드 붙여넣기`,
                       })
 
-                      setRightModel({ ...rightModel, structure: result.result })
+                      right.setModel({ ...right.model, structure: result.result })
                       showMessage("붙여넣기 성공", result.message)
                     } else {
                       showMessage("붙여넣기 실패", result.message, "error")
                     }
                   }
                 }}
-                onDelete={handleRightDelete}
+                onDelete={right.handleDelete}
                 side="right"
-                otherSideHasData={!!leftModel.structure}
+                otherSideHasData={!!left.model.structure}
                 clipboard={clipboard}
               />
               
@@ -617,20 +401,21 @@ export default function Home() {
           )}
 
           <div className="h-64 mt-4 border rounded">
-            {rightModel.url ? (
-              rightModel.error ? (
+            {right.model.url ? (
+              right.model.error ? (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{rightModel.error}</AlertDescription>
+                  <AlertDescription>{right.model.error}</AlertDescription>
                 </Alert>
               ) : (
                 <ModelViewer
-                  url={rightModel.url}
-                  modelStructure={rightModel.structure}
+                  url={right.model.url}
+                  modelStructure={right.model.structure}
                   onSceneReady={handleRightSceneReady}
-                  onAnimationsLoaded={handleRightAnimationsLoaded}
-                  onVRMLoaded={handleRightVRMLoaded}
+                  onAnimationsLoaded={right.handleAnimationsLoaded}
+                  onVRMLoaded={right.handleVRMLoaded}
+                  onDocumentManagerReady={handleRightDocumentManagerReady}
                 />
               )
             ) : (

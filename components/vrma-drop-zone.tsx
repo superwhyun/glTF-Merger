@@ -10,18 +10,21 @@ interface VRMADropZoneProps {
   onAnimationApply: () => void
   isVRMLoaded: boolean
   loadedAnimationName: string | null
+  disabled?: boolean
 }
 
-export function VRMADropZone({ 
-  onAnimationLoaded, 
+export function VRMADropZone({
+  onAnimationLoaded,
   onAnimationApply,
-  isVRMLoaded, 
-  loadedAnimationName 
+  isVRMLoaded,
+  loadedAnimationName,
+  disabled = false
 }: VRMADropZoneProps) {
   const [isLoading, setIsLoading] = useState(false)
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
+      if (disabled) return;
       console.log("🎬 VRMA onDrop 시작", { filesCount: acceptedFiles.length })
       if (acceptedFiles.length === 0) {
         console.warn("⚠️ 업로드된 파일이 없습니다")

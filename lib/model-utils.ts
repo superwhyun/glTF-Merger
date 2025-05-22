@@ -222,3 +222,5 @@ export function deleteNodeFromStructure(
     }
   }
 }
+
+export {};

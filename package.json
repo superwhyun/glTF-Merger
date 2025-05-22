@@ -9,6 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@gltf-transform/core": "^4.1.3",
+    "@gltf-transform/extensions": "^4.1.3",
+    "@gltf-transform/functions": "^4.1.3",
     "@hookform/resolvers": "^3.9.1",
     "@pixiv/three-vrm": "latest",
     "@pixiv/three-vrm-animation": "^3.4.0",

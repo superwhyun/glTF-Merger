@@ -221,7 +221,19 @@ export async function createAnimationClipFromVRMA(vrmAnimation: any, vrm: VRM): 
            exportName.toLowerCase().includes('clip'))) {
         console.log(`✅ export 함수 ${exportName} 시도`)
         try {
-          const clip = exportValue(vrmAnimation, vrm)
+          let clip;
+          // 클래스(생성자)인지 함수인지 판별
+          if (
+            typeof exportValue === "function" &&
+            exportValue.prototype &&
+            exportValue.prototype.constructor === exportValue
+          ) {
+            // 클래스면 new로 생성
+            clip = new exportValue(vrmAnimation, vrm);
+          } else {
+            // 함수면 그냥 호출
+            clip = exportValue(vrmAnimation, vrm);
+          }
           if (clip instanceof THREE.AnimationClip) {
             console.log(`✅ ${exportName}으로 성공!`)
             return clip
