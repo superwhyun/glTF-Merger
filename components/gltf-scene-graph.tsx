@@ -1,13 +1,14 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
-import { ChevronRight, ChevronDown, Move, Copy, Trash2, Search, Filter } from "lucide-react"
+import { Move, Copy, Trash2, Search, Filter, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Document } from '@gltf-transform/core'
+import * as THREE from "three"
 import { 
   extractSceneGraphHierarchy, 
   searchNodes,
@@ -27,6 +28,8 @@ interface GLTFSceneGraphProps {
     source: "left" | "right" | null
   }
   onClipboardChange?: (data: { nodeInfo: GLTFNodeInfo | null; source: "left" | "right" | null }) => void
+  onNodeVisibilityChange?: (nodeId: string, visible: boolean) => void
+  threeScene?: THREE.Scene | null
 }
 
 /**
@@ -42,13 +45,16 @@ export function GLTFSceneGraph({
   side,
   otherSideDocument,
   clipboard,
-  onClipboardChange
+  onClipboardChange,
+  onNodeVisibilityChange,
+  threeScene
 }: GLTFSceneGraphProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<string>("all")
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null)
+  const [nodeVisibility, setNodeVisibility] = useState<Record<string, boolean>>({})
   
   // Scene Graph 계층구조 추출
   const sceneGraph = useMemo(() => {
@@ -111,6 +117,23 @@ export function GLTFSceneGraph({
       newExpanded.add(nodeId)
     }
     setExpandedNodes(newExpanded)
+  }
+
+  // 노드 가시성 토글
+  const toggleNodeVisibility = (nodeId: string) => {
+    const isCurrentlyVisible = nodeVisibility[nodeId] !== false // 기본값은 true
+    
+    // 상태 업데이트
+    setNodeVisibility(prev => ({
+      ...prev,
+      [nodeId]: !isCurrentlyVisible
+    }))
+    
+    // Three.js 렌더링에도 반영
+    if (threeScene && onNodeVisibilityChange) {
+      onNodeVisibilityChange(nodeId, !isCurrentlyVisible)
+      console.log(`노드 가시성 토글 이벤트 발생: ${nodeId}, 새 상태: ${!isCurrentlyVisible ? '표시' : '숨김'}`)
+    }
   }
 
   // 노드 선택
@@ -227,11 +250,13 @@ export function GLTFSceneGraph({
               selectedNodeId={selectedNodeId}
               expandedNodes={expandedNodes}
               dragOverNodeId={dragOverNodeId}
+              nodeVisibility={nodeVisibility}
               onToggle={toggleNode}
               onSelect={selectNode}
               onCopy={copyNodeToClipboard}
               onPaste={pasteFromClipboard}
               onDelete={onNodeDelete}
+              onToggleVisibility={toggleNodeVisibility}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -253,11 +278,13 @@ interface SceneGraphNodeProps {
   selectedNodeId: string | null
   expandedNodes: Set<string>
   dragOverNodeId: string | null
+  nodeVisibility: Record<string, boolean>
   onToggle: (nodeId: string) => void
   onSelect: (nodeId: string) => void
   onCopy: (nodeInfo: GLTFNodeInfo) => void
   onPaste: (targetNodeId: string) => void
   onDelete?: (nodeId: string) => void
+  onToggleVisibility: (nodeId: string) => void
   onDragStart: (e: React.DragEvent, nodeInfo: GLTFNodeInfo) => void
   onDragOver: (e: React.DragEvent, nodeId: string) => void
   onDragLeave: () => void
@@ -274,11 +301,13 @@ function SceneGraphNode({
   selectedNodeId,
   expandedNodes,
   dragOverNodeId,
+  nodeVisibility,
   onToggle,
   onSelect,
   onCopy,
   onPaste,
   onDelete,
+  onToggleVisibility,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -291,6 +320,7 @@ function SceneGraphNode({
   const hasChildren = nodeInfo.children.length > 0
   const isDragOver = dragOverNodeId === nodeInfo.id
   const canPaste = clipboard?.nodeInfo && clipboard.source !== side
+  const isVisible = nodeVisibility[nodeInfo.id] !== false // 기본값은 true
 
   return (
     <div className="select-none">
@@ -306,28 +336,34 @@ function SceneGraphNode({
         onDragOver={(e) => onDragOver(e, nodeInfo.id)}
         onDragLeave={onDragLeave}
         onDrop={(e) => onDrop(e, nodeInfo.id)}
-        onClick={() => onSelect(nodeInfo.id)}
+        onClick={(e) => {
+          if (hasChildren) {
+            onToggle(nodeInfo.id)
+          }
+          onSelect(nodeInfo.id)
+        }}
       >
-        {/* 펼치기/접기 */}
-        {hasChildren ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="p-0 h-4 w-4"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggle(nodeInfo.id)
-            }}
-          >
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-          </Button>
-        ) : (
-          <div className="w-4" />
-        )}
+        {/* 가시성 토글 버튼 */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`p-0 h-5 w-5 ${!isVisible ? 'text-gray-400' : 'text-blue-500'}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleVisibility(nodeInfo.id)
+              }}
+            >
+              {isVisible ? (
+                <Eye className="h-3.5 w-3.5" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{isVisible ? '숨기기' : '표시하기'}</TooltipContent>
+        </Tooltip>
 
         {/* 노드 정보 */}
         <div className="flex-1 flex items-center gap-2 min-w-0">
@@ -421,11 +457,13 @@ function SceneGraphNode({
               selectedNodeId={selectedNodeId}
               expandedNodes={expandedNodes}
               dragOverNodeId={dragOverNodeId}
+              nodeVisibility={nodeVisibility}
               onToggle={onToggle}
               onSelect={onSelect}
               onCopy={onCopy}
               onPaste={onPaste}
               onDelete={onDelete}
+              onToggleVisibility={onToggleVisibility}
               onDragStart={onDragStart}
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}

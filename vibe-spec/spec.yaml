@@ -4,7 +4,7 @@
 project:
   name: "GLTF-VRM-Merger"
   description: "VRM과 GLTF 모델을 로드하고 노드를 병합/복사/삭제할 수 있는 웹 기반 3D 모델 에디터"
-  version: "2.3.2"
+  version: "2.3.3"
   technology_stack:
     - "Next.js 15.2.4"
     - "React 19"  
@@ -46,6 +46,15 @@ file_structure:
     - "spec.yaml: 프로젝트 사양서"
 
 recent_changes:
+  - 버전: "2.3.3"
+    날짜: "2025-05-23"
+    변경내용:
+      - "Scene Graph UI 개선 완료"
+      - "펼치기/접기 버튼 제거하고 클릭으로 펼치기/접기 동작으로 변경"
+      - "노드 가시성 제어 아이콘(눈 모양) 추가"
+      - "Three.js 렌더링과 gltf-transform Document 연동"
+      - "가시성 토글 시 실시간 렌더링 적용"
+      - "UI 상호작용 개선으로 더 직관적인 사용자 경험 제공"
   - 버전: "2.3.2"
     날짜: "2025-05-22"
     변경내용:
@@ -101,14 +110,6 @@ known_issues:
   - "일부 VRM 확장 속성이 내보내기 시 보존되지 않을 수 있음"
 
 todo_list:
-  - "모델 구조 및 Scene Graph UI 개선:"
-    - "각 요소 앞의 펼치기/접기 버튼(동그란 것) 제거"
-    - "트리 항목 간 세로 간격 줄여서 더 컴팩트하게 표시"
-  - "Scene Graph 노드 가시성 제어 기능:"
-    - "각 노드에 눈 모양 아이콘(가시성 토글) 추가"
-    - "눈을 뜨면(열림) 해당 노드가 3D 렌더링에서 보임"
-    - "눈을 감으면(닫힘) 해당 노드가 3D 렌더링에서 숨김"
-    - "Three.js Scene에서 node.visible 속성 제어"
   - "Scene Graph 아키텍처 개선 (성능 최적화):"
     - "현재 문제: gltf-transform Document 기반 Scene Graph는 변경 시 전체 재직렬화로 인한 성능 저하"
     - "개선 방향: Three.js Scene 기반 Scene Graph로 전환"
