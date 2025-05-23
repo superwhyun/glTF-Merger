@@ -378,6 +378,33 @@ export default function Home() {
             />
           </div>
 
+          {/* 1. 렌더링된 이미지 */}
+          <div className="h-64 mb-4 border rounded">
+            {left.model.url ? (
+              left.model.error ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>모델 로딩 실패</AlertTitle>
+                  <AlertDescription>{left.model.error}</AlertDescription>
+                </Alert>
+              ) : (
+                <ModelViewer
+                  url={left.model.url}
+                  modelStructure={left.model.structure}
+                  onSceneReady={handleLeftSceneReady}
+                  onAnimationsLoaded={left.handleAnimationsLoaded}
+                  onVRMLoaded={left.handleVRMLoaded}
+                  onDocumentManagerReady={handleLeftDocumentManagerReady}
+                />
+              )
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                모델을 로드하면 여기에 표시됩니다
+              </div>
+            )}
+          </div>
+
+          {/* 2. 파일 드롭존 */}
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               left.setModel({ file, structure, url, error })
@@ -387,6 +414,7 @@ export default function Home() {
             }}
           />
 
+          {/* 3. VRMA 드롭존 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={left.handleVRMALoaded}
@@ -399,24 +427,7 @@ export default function Home() {
 
           {left.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
-              <GLTFModelTree
-                document={leftDocumentManagerRef.current?.getDocument() || null}
-                onNodeSelect={(nodeInfo) => {
-                  console.log("Left node selected:", nodeInfo)
-                }}
-                onNodeCopy={(nodeInfo) => {
-                  setClipboard({ nodeInfo, source: "left" })
-                }}
-                onNodeMove={(sourceNodeId, targetNodeId) => {
-                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
-                }}
-                onNodeDelete={(nodeId) => {
-                  console.log("Delete node:", nodeId)
-                }}
-                side="left"
-                clipboard={clipboard}
-              />
-              
+              {/* 4. 씬 그래프 */}
               <GLTFSceneGraph
                 document={leftDocumentManagerRef.current?.getDocument() || null}
                 onNodeMove={(sourceNodeId, targetNodeId) => {
@@ -453,33 +464,27 @@ export default function Home() {
                 onClipboardChange={setClipboard}
                 threeScene={leftSceneRef.current}
               />
+              
+              {/* 5. 모델 구조 */}
+              <GLTFModelTree
+                document={leftDocumentManagerRef.current?.getDocument() || null}
+                onNodeSelect={(nodeInfo) => {
+                  console.log("Left node selected:", nodeInfo)
+                }}
+                onNodeCopy={(nodeInfo) => {
+                  setClipboard({ nodeInfo, source: "left" })
+                }}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Delete node:", nodeId)
+                }}
+                side="left"
+                clipboard={clipboard}
+              />
             </div>
           )}
-
-          <div className="h-64 mt-4 border rounded">
-            {left.model.url ? (
-              left.model.error ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{left.model.error}</AlertDescription>
-                </Alert>
-              ) : (
-                <ModelViewer
-                  url={left.model.url}
-                  modelStructure={left.model.structure}
-                  onSceneReady={handleLeftSceneReady}
-                  onAnimationsLoaded={left.handleAnimationsLoaded}
-                  onVRMLoaded={left.handleVRMLoaded}
-                  onDocumentManagerReady={handleLeftDocumentManagerReady}
-                />
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
-                모델을 로드하면 여기에 표시됩니다
-              </div>
-            )}
-          </div>
         </div>
 
         {/* 오른쪽 모델 섹션 */}
@@ -497,6 +502,33 @@ export default function Home() {
             />
           </div>
 
+          {/* 1. 렌더링된 이미지 */}
+          <div className="h-64 mb-4 border rounded">
+            {right.model.url ? (
+              right.model.error ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>모델 로딩 실패</AlertTitle>
+                  <AlertDescription>{right.model.error}</AlertDescription>
+                </Alert>
+              ) : (
+                <ModelViewer
+                  url={right.model.url}
+                  modelStructure={right.model.structure}
+                  onSceneReady={handleRightSceneReady}
+                  onAnimationsLoaded={right.handleAnimationsLoaded}
+                  onVRMLoaded={right.handleVRMLoaded}
+                  onDocumentManagerReady={handleRightDocumentManagerReady}
+                />
+              )
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                모델을 로드하면 여기에 표시됩니다
+              </div>
+            )}
+          </div>
+
+          {/* 2. 파일 드롭존 */}
           <ModelDropZone
             onModelLoaded={(file, structure, url, error) => {
               right.setModel({ file, structure, url, error })
@@ -506,6 +538,7 @@ export default function Home() {
             }}
           />
 
+          {/* 3. VRMA 드롭존 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={right.handleVRMALoaded}
@@ -517,24 +550,7 @@ export default function Home() {
 
           {right.model.structure && (
             <div className="mt-4 flex-grow overflow-auto space-y-4">
-              <GLTFModelTree
-                document={rightDocumentManagerRef.current?.getDocument() || null}
-                onNodeSelect={(nodeInfo) => {
-                  console.log("Right node selected:", nodeInfo)
-                }}
-                onNodeCopy={(nodeInfo) => {
-                  setClipboard({ nodeInfo, source: "right" })
-                }}
-                onNodeMove={(sourceNodeId, targetNodeId) => {
-                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
-                }}
-                onNodeDelete={(nodeId) => {
-                  console.log("Delete node:", nodeId)
-                }}
-                side="right"
-                clipboard={clipboard}
-              />
-              
+              {/* 4. 씬 그래프 */}
               <GLTFSceneGraph
                 document={rightDocumentManagerRef.current?.getDocument() || null}
                 onNodeMove={(sourceNodeId, targetNodeId) => {
@@ -571,33 +587,27 @@ export default function Home() {
                 onClipboardChange={setClipboard}
                 threeScene={rightSceneRef.current}
               />
+              
+              {/* 5. 모델 구조 */}
+              <GLTFModelTree
+                document={rightDocumentManagerRef.current?.getDocument() || null}
+                onNodeSelect={(nodeInfo) => {
+                  console.log("Right node selected:", nodeInfo)
+                }}
+                onNodeCopy={(nodeInfo) => {
+                  setClipboard({ nodeInfo, source: "right" })
+                }}
+                onNodeMove={(sourceNodeId, targetNodeId) => {
+                  console.log("Move node:", sourceNodeId, "to", targetNodeId)
+                }}
+                onNodeDelete={(nodeId) => {
+                  console.log("Delete node:", nodeId)
+                }}
+                side="right"
+                clipboard={clipboard}
+              />
             </div>
           )}
-
-          <div className="h-64 mt-4 border rounded">
-            {right.model.url ? (
-              right.model.error ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{right.model.error}</AlertDescription>
-                </Alert>
-              ) : (
-                <ModelViewer
-                  url={right.model.url}
-                  modelStructure={right.model.structure}
-                  onSceneReady={handleRightSceneReady}
-                  onAnimationsLoaded={right.handleAnimationsLoaded}
-                  onVRMLoaded={right.handleVRMLoaded}
-                  onDocumentManagerReady={handleRightDocumentManagerReady}
-                />
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
-                모델을 로드하면 여기에 표시됩니다
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
