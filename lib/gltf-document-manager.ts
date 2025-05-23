@@ -178,6 +178,14 @@ export class GLTFDocumentManager {
         originalExtrasRoot = originalJson.extras || {};
         console.log('🟢 [PRESERVE] 원본 확장:', Object.keys(originalExtensions));
         console.log('🟢 [PRESERVE] 원본 Extras:', originalExtrasRoot);
+        
+        // VRM 관련 extensions 특별 처리
+        const vrmExtensions = ['VRM', 'VRMC_vrm', 'VRMC_springBone', 'VRMC_materials_mtoon', 'VRMC_materials_hdr_emissiveMultiplier', 'VRMC_node_constraint'];
+        vrmExtensions.forEach(extName => {
+          if (originalExtensions[extName]) {
+            console.log(`🟢 [PRESERVE] VRM 확장 발견: ${extName}`, originalExtensions[extName]);
+          }
+        });
       }
       
       // Root에 모든 확장 데이터를 extras로 보존
@@ -199,6 +207,39 @@ export class GLTFDocumentManager {
               originalExtensions: originalNode.extensions || {},
               originalExtras: originalNode.extras || {}
             });
+            
+            // VRM 관련 노드 extensions 로깅
+            if (originalNode.extensions) {
+              Object.keys(originalNode.extensions).forEach(extName => {
+                if (extName.startsWith('VRM') || extName.startsWith('VRMC_')) {
+                  console.log(`🟢 [PRESERVE] 노드 ${index} VRM 확장: ${extName}`);
+                }
+              });
+            }
+          }
+        });
+      }
+      
+      // 머티리얼 확장 정보도 보존
+      if (originalJson?.materials) {
+        root.listMaterials().forEach((material, index) => {
+          const originalMaterial = originalJson.materials[index];
+          if (originalMaterial?.extensions || originalMaterial?.extras) {
+            const materialExtras = material.getExtras() || {};
+            material.setExtras({
+              ...materialExtras,
+              originalExtensions: originalMaterial.extensions || {},
+              originalExtras: originalMaterial.extras || {}
+            });
+            
+            // VRM 관련 머티리얼 extensions 로깅
+            if (originalMaterial.extensions) {
+              Object.keys(originalMaterial.extensions).forEach(extName => {
+                if (extName.startsWith('VRM') || extName.startsWith('VRMC_')) {
+                  console.log(`🟢 [PRESERVE] 머티리얼 ${index} VRM 확장: ${extName}`);
+                }
+              });
+            }
           }
         });
       }
@@ -219,26 +260,42 @@ export class GLTFDocumentManager {
     const root = this.document.getRoot();
     const declared = root.listExtensionsUsed().map(ext => ext.extensionName);
 
-    const checkExtensions = (obj: any) => {
+    console.log('🟢 [EXTENSIONS] 선언된 확장:', declared);
+
+    const checkExtensions = (obj: any, objType: string = 'unknown') => {
       for (const extName of declared) {
         if (obj.getExtension && obj.getExtension(extName)) {
           found.add(extName);
-          console.log('FOUND : ', extName)
-
+          console.log(`🟢 [EXTENSIONS] ${objType}에서 ${extName} 발견`);
         }
+      }
+      
+      // extras에서 originalExtensions도 확인
+      const extras = obj.getExtras && obj.getExtras();
+      if (extras?.originalExtensions) {
+        Object.keys(extras.originalExtensions).forEach(extName => {
+          found.add(extName);
+          console.log(`🟢 [EXTENSIONS] ${objType} extras에서 ${extName} 발견`);
+        });
       }
     };
 
-    root.listScenes().forEach(checkExtensions);
-    root.listNodes().forEach(checkExtensions);
-    root.listMeshes().forEach(checkExtensions);
-    root.listMaterials().forEach(checkExtensions);
-    root.listTextures().forEach(checkExtensions);
-    root.listAnimations().forEach(checkExtensions);
-    root.listAccessors().forEach(checkExtensions);
-    root.listBuffers().forEach(checkExtensions);
+    // Root 확장 확인
+    checkExtensions(root, 'root');
+    
+    // 각 객체 타입별 확장 확인
+    root.listScenes().forEach((scene, i) => checkExtensions(scene, `scene-${i}`));
+    root.listNodes().forEach((node, i) => checkExtensions(node, `node-${i}`));
+    root.listMeshes().forEach((mesh, i) => checkExtensions(mesh, `mesh-${i}`));
+    root.listMaterials().forEach((material, i) => checkExtensions(material, `material-${i}`));
+    root.listTextures().forEach((texture, i) => checkExtensions(texture, `texture-${i}`));
+    root.listAnimations().forEach((animation, i) => checkExtensions(animation, `animation-${i}`));
+    root.listAccessors().forEach((accessor, i) => checkExtensions(accessor, `accessor-${i}`));
+    root.listBuffers().forEach((buffer, i) => checkExtensions(buffer, `buffer-${i}`));
 
-    return Array.from(found);
+    const result = Array.from(found);
+    console.log('🟢 [EXTENSIONS] 최종 발견된 확장:', result);
+    return result;
   }
 
 // %%%%%LAST%%%%%
@@ -455,12 +512,23 @@ export class GLTFDocumentManager {
       console.log('🟡 [EXPORT] - 메시 수:', this.document.getRoot().listMeshes().length);
       console.log('🟡 [EXPORT] - 머티리얼 수:', this.document.getRoot().listMaterials().length);
       console.log('🟡 [EXPORT] - 텍스처 수:', this.document.getRoot().listTextures().length);
+      
+      // 현재 확장 상태 확인
+      const root = this.document.getRoot();
+      console.log('🟡 [EXPORT] - 선언된 확장:', root.listExtensionsUsed().map(e => e.extensionName));
+      console.log('🟡 [EXPORT] - 필수 확장:', root.listExtensionsRequired().map(e => e.extensionName));
+      console.log('🟡 [EXPORT] - Root extras 키들:', Object.keys(root.getExtras() || {}));
 
       // Export 전에 모든 확장 데이터 복원
       await this.restoreAllExtensions();
+      
+      // 복원 후 상태 재확인
+      console.log('🟡 [EXPORT] 복원 후 - 선언된 확장:', root.listExtensionsUsed().map(e => e.extensionName));
+      console.log('🟡 [EXPORT] 복원 후 - Root extras 키들:', Object.keys(root.getExtras() || {}));
 
       const arrayBuffer = await this.io.writeBinary(this.document, {
-        includeCustomExtensions: true
+        includeCustomExtensions: true,
+        format: 'glb'
       });
       console.log('🟢 [EXPORT] gltf-transform 내보내기 성공, 크기:', arrayBuffer.byteLength, 'bytes');
       
@@ -480,37 +548,109 @@ export class GLTFDocumentManager {
     const root = this.document.getRoot();
     const rootExtras = root.getExtras();
     
-    if (rootExtras?.originalExtensions) {
-      console.log('🟢 [RESTORE] 확장 데이터 복원 시작');
+    if (!rootExtras?.originalExtensions) {
+      console.log('🟡 [RESTORE] 복원할 확장 데이터가 없습니다.');
+      return;
+    }
+
+    console.log('🟢 [RESTORE] 확장 데이터 복원 시작');
+    console.log('🟢 [RESTORE] 복원할 확장들:', Object.keys(rootExtras.originalExtensions));
+    
+    try {
+      const originalExtensions = rootExtras.originalExtensions;
       
-      try {
-        // 원본 확장 정보를 Document JSON에 직접 설정
-        const writeCtx = this.document.createWriteContext();
-        if (writeCtx.jsonDoc && writeCtx.jsonDoc.json) {
-          writeCtx.jsonDoc.json.extensions = {
-            ...writeCtx.jsonDoc.json.extensions,
-            ...rootExtras.originalExtensions
-          };
-          
-          if (rootExtras.originalExtras) {
-            writeCtx.jsonDoc.json.extras = {
-              ...writeCtx.jsonDoc.json.extras,
-              ...rootExtras.originalExtras
-            };
-          }
+      // 1. Document JSON에 직접 extensions 설정
+      const jsonDoc = this.document.getGraph().getLinks().find(link => 
+        link.getChild()?.constructor?.name === 'JSONDocument'
+      )?.getChild() as any;
+      
+      if (jsonDoc && jsonDoc.json) {
+        // Root level extensions 설정
+        if (!jsonDoc.json.extensions) {
+          jsonDoc.json.extensions = {};
         }
         
-        console.log('🟢 [RESTORE] 확장 데이터 복원 완료');
-      } catch (error) {
-        console.warn('🟡 [RESTORE] 확장 복원 실패, extras로 대체:', error);
+        // 원본 extensions를 직접 복사
+        Object.assign(jsonDoc.json.extensions, originalExtensions);
         
-        // 복원 실패 시 extras에 보존
-        root.setExtras({
-          ...rootExtras,
-          extensions: rootExtras.originalExtensions,
-          extras: rootExtras.originalExtras
+        // extensionsUsed에 추가
+        if (!jsonDoc.json.extensionsUsed) {
+          jsonDoc.json.extensionsUsed = [];
+        }
+        
+        Object.keys(originalExtensions).forEach(extName => {
+          if (!jsonDoc.json.extensionsUsed.includes(extName)) {
+            jsonDoc.json.extensionsUsed.push(extName);
+          }
         });
+        
+        // VRM extensions는 required로 설정
+        if (!jsonDoc.json.extensionsRequired) {
+          jsonDoc.json.extensionsRequired = [];
+        }
+        
+        Object.keys(originalExtensions).forEach(extName => {
+          if ((extName.startsWith('VRM') || extName.startsWith('VRMC_')) && 
+              !jsonDoc.json.extensionsRequired.includes(extName)) {
+            jsonDoc.json.extensionsRequired.push(extName);
+          }
+        });
+        
+        console.log('🟢 [RESTORE] Document JSON에 extensions 직접 설정:', Object.keys(originalExtensions));
+        console.log('🟢 [RESTORE] extensionsUsed:', jsonDoc.json.extensionsUsed);
+        console.log('🟢 [RESTORE] extensionsRequired:', jsonDoc.json.extensionsRequired);
+      } else {
+        console.warn('🟡 [RESTORE] JSON Document 접근 실패, 대체 방법 사용');
+        
+        // 대체 방법: Root extras에 설정
+        const newExtras = {
+          ...rootExtras,
+          ...originalExtensions,
+          originalExtensions: rootExtras.originalExtensions,
+          originalExtras: rootExtras.originalExtras
+        };
+        
+        root.setExtras(newExtras);
       }
+
+      // 2. 각 노드의 확장도 복원
+      root.listNodes().forEach((node, index) => {
+        const nodeExtras = node.getExtras();
+        if (nodeExtras?.originalExtensions) {
+          const nodeNewExtras = {
+            ...nodeExtras,
+            ...nodeExtras.originalExtensions
+          };
+          node.setExtras(nodeNewExtras);
+          console.log(`🟢 [RESTORE] 노드 ${index} 확장 복원`);
+        }
+      });
+
+      // 3. 머티리얼 확장도 복원
+      root.listMaterials().forEach((material, index) => {
+        const materialExtras = material.getExtras();
+        if (materialExtras?.originalExtensions) {
+          const materialNewExtras = {
+            ...materialExtras,
+            ...materialExtras.originalExtensions
+          };
+          material.setExtras(materialNewExtras);
+          console.log(`🟢 [RESTORE] 머티리얼 ${index} 확장 복원`);
+        }
+      });
+      
+      console.log('🟢 [RESTORE] 모든 확장 데이터 복원 완료');
+    } catch (error) {
+      console.warn('🟡 [RESTORE] 확장 복원 중 오류:', error);
+      
+      // 실패 시 최소한 extras에는 보존
+      const fallbackExtras = {
+        ...rootExtras,
+        extensions: rootExtras.originalExtensions,
+        extras: rootExtras.originalExtras
+      };
+      root.setExtras(fallbackExtras);
+      console.log('🟡 [RESTORE] 폴백: extras에 확장 데이터 보존');
     }
   }
 

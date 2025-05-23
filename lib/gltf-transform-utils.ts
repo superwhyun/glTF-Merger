@@ -245,56 +245,97 @@ export function extractSceneGraph(document: Document): GLTFNodeInfo[] {
     })
   }
 
-  // extensions
+  // extensions - 모든 확장 정보 수집
   const extensionsUsed = root.listExtensionsUsed()
+  const extensionsRequired = root.listExtensionsRequired()
+  const rootExtras = root.getExtras()
   const extensionsData: GLTFNodeInfo[] = []
+  const collectedExtensions = new Set<string>()
   
-  if (extensionsUsed.length > 0) {
-    extensionsUsed.forEach((ext, index) => {
-      const extInstance = root.getExtension(ext.extensionName)
-      const rootExtras = root.getExtras()
-      
-      extensionsData.push({
-        id: `extension_${index}`,
-        name: ext.extensionName,
-        type: 'extensions',
-        children: [],
-        properties: {
-          required: root.listExtensionsRequired().includes(ext),
-          active: !!extInstance,
-          data: extInstance || rootExtras?.[ext.extensionName] || rootExtras?.originalExtensions?.[ext.extensionName],
-          preserved: !!(rootExtras?.originalExtensions?.[ext.extensionName])
-        },
-        count: 1,
-        depth: 1,
-        uuid: `extension_${index}`
-      })
-    })
+  // 1. 선언된 extensions 처리
+  extensionsUsed.forEach((ext, index) => {
+    const extName = ext.extensionName
+    const extInstance = root.getExtension(extName)
+    collectedExtensions.add(extName)
     
-    // 보존된 확장도 별도 표시
-    const rootExtras = root.getExtras()
-    if (rootExtras?.originalExtensions) {
-      Object.keys(rootExtras.originalExtensions).forEach((extName, index) => {
-        if (!extensionsUsed.find(e => e.extensionName === extName)) {
+    extensionsData.push({
+      id: `extension_${index}`,
+      name: extName,
+      type: 'extensions',
+      children: [],
+      properties: {
+        required: extensionsRequired.some(req => req.extensionName === extName),
+        active: !!extInstance,
+        data: extInstance || null,
+        preserved: false,
+        source: 'declared'
+      },
+      count: 1,
+      depth: 1,
+      uuid: `extension_${index}`
+    })
+  })
+  
+  // 2. 보존된 originalExtensions 처리
+  if (rootExtras?.originalExtensions) {
+    Object.keys(rootExtras.originalExtensions).forEach((extName) => {
+      if (!collectedExtensions.has(extName)) {
+        const index = extensionsData.length
+        collectedExtensions.add(extName)
+        
+        extensionsData.push({
+          id: `preserved_extension_${index}`,
+          name: `${extName} (preserved)`,
+          type: 'extensions',
+          children: [],
+          properties: {
+            required: false,
+            active: false,
+            data: rootExtras.originalExtensions[extName],
+            preserved: true,
+            source: 'preserved'
+          },
+          count: 1,
+          depth: 1,
+          uuid: `preserved_extension_${index}`
+        })
+      }
+    })
+  }
+  
+  // 3. 노드별 extensions 검사
+  root.listNodes().forEach((node, nodeIndex) => {
+    const nodeExtras = node.getExtras()
+    if (nodeExtras?.originalExtensions) {
+      Object.keys(nodeExtras.originalExtensions).forEach((extName) => {
+        if (!collectedExtensions.has(extName)) {
+          const index = extensionsData.length
+          collectedExtensions.add(extName)
+          
           extensionsData.push({
-            id: `preserved_extension_${index}`,
-            name: `${extName} (preserved)`,
+            id: `node_extension_${nodeIndex}_${index}`,
+            name: `${extName} (node-${nodeIndex})`,
             type: 'extensions',
             children: [],
             properties: {
               required: false,
               active: false,
-              data: rootExtras.originalExtensions[extName],
-              preserved: true
+              data: nodeExtras.originalExtensions[extName],
+              preserved: true,
+              source: 'node',
+              nodeIndex
             },
             count: 1,
             depth: 1,
-            uuid: `preserved_extension_${index}`
+            uuid: `node_extension_${nodeIndex}_${index}`
           })
         }
       })
     }
-    
+  })
+  
+  // Extensions 섹션 추가
+  if (extensionsData.length > 0) {
     structure.push({
       id: 'extensions',
       name: `Extensions`,
@@ -302,8 +343,9 @@ export function extractSceneGraph(document: Document): GLTFNodeInfo[] {
       children: extensionsData,
       properties: {
         total: extensionsData.length,
-        active: extensionsUsed.length,
-        preserved: rootExtras?.originalExtensions ? Object.keys(rootExtras.originalExtensions).length : 0
+        declared: extensionsUsed.length,
+        preserved: rootExtras?.originalExtensions ? Object.keys(rootExtras.originalExtensions).length : 0,
+        required: extensionsRequired.length
       },
       count: extensionsData.length,
       depth: 0,
