@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { ModelDropZone } from "@/components/model-drop-zone"
 import { ModelViewer } from "@/components/model-viewer"
 import { GLTFModelTree } from "@/components/gltf-model-tree"
 import { GLTFSceneGraph } from "@/components/gltf-scene-graph"
@@ -378,43 +377,25 @@ export default function Home() {
             />
           </div>
 
-          {/* 1. 렌더링된 이미지 */}
+          {/* 1. 3D 렌더링 + 드롭존 통합 */}
           <div className="h-64 mb-4 border rounded">
-            {left.model.url ? (
-              left.model.error ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{left.model.error}</AlertDescription>
-                </Alert>
-              ) : (
-                <ModelViewer
-                  url={left.model.url}
-                  modelStructure={left.model.structure}
-                  onSceneReady={handleLeftSceneReady}
-                  onAnimationsLoaded={left.handleAnimationsLoaded}
-                  onVRMLoaded={left.handleVRMLoaded}
-                  onDocumentManagerReady={handleLeftDocumentManagerReady}
-                />
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
-                모델을 로드하면 여기에 표시됩니다
-              </div>
-            )}
+            <ModelViewer
+              initialUrl={left.model.url}
+              modelStructure={left.model.structure}
+              onModelLoaded={(file, structure, url, error) => {
+                left.setModel({ file, structure, url, error })
+                left.setVRMAFile(null)
+                left.setVRMAName(null)
+                historyManager.clear()
+              }}
+              onSceneReady={handleLeftSceneReady}
+              onAnimationsLoaded={left.handleAnimationsLoaded}
+              onVRMLoaded={left.handleVRMLoaded}
+              onDocumentManagerReady={handleLeftDocumentManagerReady}
+            />
           </div>
 
-          {/* 2. 파일 드롭존 */}
-          <ModelDropZone
-            onModelLoaded={(file, structure, url, error) => {
-              left.setModel({ file, structure, url, error })
-              left.setVRMAFile(null)
-              left.setVRMAName(null)
-              historyManager.clear()
-            }}
-          />
-
-          {/* 3. VRMA 드롭존 */}
+          {/* 2. VRMA 애니메이션 드롭존 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={left.handleVRMALoaded}
@@ -502,43 +483,25 @@ export default function Home() {
             />
           </div>
 
-          {/* 1. 렌더링된 이미지 */}
+          {/* 1. 3D 렌더링 + 드롭존 통합 */}
           <div className="h-64 mb-4 border rounded">
-            {right.model.url ? (
-              right.model.error ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>모델 로딩 실패</AlertTitle>
-                  <AlertDescription>{right.model.error}</AlertDescription>
-                </Alert>
-              ) : (
-                <ModelViewer
-                  url={right.model.url}
-                  modelStructure={right.model.structure}
-                  onSceneReady={handleRightSceneReady}
-                  onAnimationsLoaded={right.handleAnimationsLoaded}
-                  onVRMLoaded={right.handleVRMLoaded}
-                  onDocumentManagerReady={handleRightDocumentManagerReady}
-                />
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
-                모델을 로드하면 여기에 표시됩니다
-              </div>
-            )}
+            <ModelViewer
+              initialUrl={right.model.url}
+              modelStructure={right.model.structure}
+              onModelLoaded={(file, structure, url, error) => {
+                right.setModel({ file, structure, url, error })
+                right.setVRMAFile(null)
+                right.setVRMAName(null)
+                historyManager.clear()
+              }}
+              onSceneReady={handleRightSceneReady}
+              onAnimationsLoaded={right.handleAnimationsLoaded}
+              onVRMLoaded={right.handleVRMLoaded}
+              onDocumentManagerReady={handleRightDocumentManagerReady}
+            />
           </div>
 
-          {/* 2. 파일 드롭존 */}
-          <ModelDropZone
-            onModelLoaded={(file, structure, url, error) => {
-              right.setModel({ file, structure, url, error })
-              right.setVRMAFile(null)
-              right.setVRMAName(null)
-              historyManager.clear()
-            }}
-          />
-
-          {/* 3. VRMA 드롭존 */}
+          {/* 2. VRMA 애니메이션 드롭존 */}
           <div className="mt-3">
             <VRMADropZone
               onAnimationLoaded={right.handleVRMALoaded}

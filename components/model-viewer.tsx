@@ -1,27 +1,38 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader"
 import { VRMLoaderPlugin, VRMUtils, VRM } from "@pixiv/three-vrm"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Play, Pause, RotateCcw } from "lucide-react"
+import { AlertCircle, Play, Pause, RotateCcw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { GLTFDocumentManager } from "@/lib/gltf-document-manager"
 import { loadThreeGLTF, loadGLTFDocument } from "@/lib/model-loaders"
+import { useDropzone } from "react-dropzone"
+import { parseGLTF } from "@/lib/model-parser"
 
 interface ModelViewerProps {
-  url: string
-  modelStructure: any
+  onModelLoaded?: (file: File | null, structure: any | null, url: string | null, error: string | null) => void
   onSceneReady?: (scene: THREE.Scene) => void
   onAnimationsLoaded?: (animations: THREE.AnimationClip[]) => void
   onVRMLoaded?: (vrm: VRM | null, vrmData?: any) => void
-  onDocumentManagerReady?: (manager: any) => void // GLTFDocumentManager 타입 임시 any로 변경
+  onDocumentManagerReady?: (manager: any) => void
+  initialUrl?: string
+  modelStructure?: any
 }
 
-export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoaded, onVRMLoaded, onDocumentManagerReady }: ModelViewerProps) {
+export function ModelViewer({ 
+  onModelLoaded, 
+  onSceneReady, 
+  onAnimationsLoaded, 
+  onVRMLoaded, 
+  onDocumentManagerReady,
+  initialUrl,
+  modelStructure 
+}: ModelViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -30,6 +41,10 @@ export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoa
   const [animationProgress, setAnimationProgress] = useState(0)
   const [hasAnimations, setHasAnimations] = useState(false)
   const [isModelLoaded, setIsModelLoaded] = useState(false)
+  
+  // 드롭존 관련 상태 추가
+  const [isDropLoading, setIsDropLoading] = useState(false)
+  const [currentUrl, setCurrentUrl] = useState(initialUrl || "")
 
   // Three.js 객체 참조 저장
   const sceneRef = useRef<THREE.Scene | null>(null)
@@ -43,7 +58,7 @@ export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoa
   // VRM 참조 추가
   const vrmRef = useRef<VRM | null>(null)
   const animationFrameRef = useRef<number | null>(null)
-  const urlRef = useRef<string>(url)
+  const urlRef = useRef<string>(currentUrl)
 
   const documentManagerRef = useRef<any>(null)
 
@@ -54,6 +69,79 @@ export function ModelViewer({ url, modelStructure, onSceneReady, onAnimationsLoa
   // 모델 구조 변경 감지를 위한 ref와 state
   const modelStructureRef = useRef<any>(null)
   const structureChangedRef = useRef<boolean>(false)
+
+  // 파일 드롭 처리 로직
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      if (acceptedFiles.length === 0) return
+
+      const file = acceptedFiles[0]
+      setIsDropLoading(true)
+
+      try {
+        // 파일 확장자 확인
+        const extension = file.name.split(".").pop()?.toLowerCase()
+        if (extension !== "glb" && extension !== "vrm") {
+          throw new Error("GLB 또는 VRM 파일만 지원합니다.")
+        }
+
+        console.log(`파일 로드 시작: ${file.name} (${file.size} 바이트)`)
+
+        // 파일 URL 생성
+        const url = URL.createObjectURL(file)
+        
+        // 이전 URL 정리
+        if (currentUrl && currentUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(currentUrl)
+        }
+        
+        setCurrentUrl(url)
+        urlRef.current = url
+
+        // 파일 구조 파싱
+        console.log("파일 구조 파싱 중...")
+        const structure = await parseGLTF(file)
+        console.log("파일 구조 파싱 완료")
+
+        // 모델에 애니메이션이 있는지 확인
+        const hasAnimations = structure.animations && Object.keys(structure.animations).length > 0
+        console.log(`애니메이션 ${hasAnimations ? "발견" : "없음"}`)
+
+        if (hasAnimations) {
+          console.log("애니메이션 목록:", Object.keys(structure.animations))
+        }
+
+        // 콜백 호출
+        if (onModelLoaded) {
+          onModelLoaded(file, structure, url, null)
+        }
+        
+        // 모델 로드 실행
+        await loadModel(url)
+        
+      } catch (error) {
+        console.error("모델 로딩 오류:", error)
+        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+        setError(errorMessage)
+        
+        if (onModelLoaded) {
+          onModelLoaded(null, null, null, errorMessage)
+        }
+      } finally {
+        setIsDropLoading(false)
+      }
+    },
+    [onModelLoaded, currentUrl],
+  )
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "model/gltf-binary": [".glb", ".vrm"],
+    },
+    maxFiles: 1,
+    noClick: false, // 클릭도 허용
+  })
 
 // modelStructure.animations가 바뀔 때 애니메이션 상태 동기화
 useEffect(() => {
@@ -437,21 +525,22 @@ useEffect(() => {
     }
   }, []) // 의존성 배열을 빈 배열로 변경
 
-  // 초기 모델 로드를 위한 별도 useEffect
+  // URL 변경 시 모델 로드
   useEffect(() => {
-    if (sceneRef.current && url) {
-      urlRef.current = url
-      loadModel(url)
+    if (sceneRef.current && currentUrl && currentUrl !== urlRef.current) {
+      console.log(`🔄 URL 변경 감지: ${urlRef.current || 'null'} → ${currentUrl}`);
+      urlRef.current = currentUrl;
+      loadModel(currentUrl);
     }
-  }, [url])
+  }, [currentUrl])
 
-  // onSceneReady 콜백을 위한 별도 useEffect
+  // 초기 URL 설정
   useEffect(() => {
-    if (sceneRef.current && onSceneReady) {
-      console.log("ModelViewer: onSceneReady 콜백 업데이트됨")
-      onSceneReady(sceneRef.current)
+    if (initialUrl && !currentUrl) {
+      console.log(`🚀 초기 URL 설정: ${initialUrl}`);
+      setCurrentUrl(initialUrl);
     }
-  }, [onSceneReady])
+  }, [initialUrl, currentUrl])
 
   // 애니메이션 변경 처리
   useEffect(() => {
@@ -615,7 +704,48 @@ useEffect(() => {
         </Alert>
       ) : (
         <>
-          <div ref={containerRef} className="w-full flex-grow" />
+          {/* 3D 렌더링 영역 + 드롭존 */}
+          <div 
+            {...getRootProps()}
+            className={`w-full flex-grow relative cursor-pointer transition-colors ${
+              isDragActive ? "bg-primary/5 border-2 border-dashed border-primary" : ""
+            }`}
+          >
+            <input {...getInputProps()} />
+            
+            {/* Three.js 캔버스 영역 */}
+            <div ref={containerRef} className="w-full h-full" />
+
+            {/* 드래그 오버레이 */}
+            {isDragActive && (
+              <div className="absolute inset-0 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
+                <div className="text-center">
+                  <p className="text-lg font-medium text-primary">파일을 여기에 놓으세요</p>
+                  <p className="text-sm text-muted-foreground">GLB 또는 VRM 파일</p>
+                </div>
+              </div>
+            )}
+
+            {/* 로딩 오버레이 */}
+            {isDropLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm font-medium">모델 로딩 중...</p>
+                </div>
+              </div>
+            )}
+
+            {/* 빈 상태 표시 */}
+            {!currentUrl && !isDropLoading && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center text-muted-foreground">
+                  <p className="text-lg font-medium mb-2">3D 모델을 드롭하거나 클릭하여 업로드</p>
+                  <p className="text-sm">GLB 또는 VRM 파일을 지원합니다</p>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 애니메이션 컨트롤 */}
           {hasAnimations && (
