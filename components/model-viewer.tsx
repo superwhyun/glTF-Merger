@@ -140,7 +140,7 @@ export function ModelViewer({
       "model/gltf-binary": [".glb", ".vrm"],
     },
     maxFiles: 1,
-    noClick: false, // 클릭도 허용
+    noClick: isModelLoaded, // 모델이 로딩된 상태에서는 클릭 비활성화
   })
 
 // modelStructure.animations가 바뀔 때 애니메이션 상태 동기화

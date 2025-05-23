@@ -32,8 +32,14 @@ export class GLTFDocumentManager {
       const uint8Array = new Uint8Array(arrayBuffer);
       console.log('Uint8Array 첫 4바이트:', Array.from(uint8Array.slice(0, 4)));
       
-      // WebIO로 읽기 시도 - unknown extensions 보존 설정
+      // 원본 JSON 데이터 파싱 (확장 보존용)
+      const originalJson = await this.parseOriginalJson(uint8Array);
+      
+      // WebIO로 읽기 시도
       this.document = await this.io.readBinary(uint8Array);
+      
+      // VRM 및 기타 확장 데이터 검증 및 보존
+      await this.preserveAllExtensions(originalJson);
       
       console.log('🟢 glTF-Transform Document 로드 성공:', this.document);
       console.log('🟢 - 노드 수:', this.document.getRoot().listNodes().length);
@@ -122,6 +128,84 @@ export class GLTFDocumentManager {
     } catch (error) {
       console.error('glTF Document 로드 실패:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 원본 JSON 데이터 파싱 (확장 보존용)
+   */
+  private async parseOriginalJson(uint8Array: Uint8Array): Promise<any> {
+    try {
+      // GLB 헤더 확인
+      const magic = new Uint32Array(uint8Array.buffer, 0, 1)[0];
+      if (magic === 0x46546C67) { // 'glTF' magic
+        // GLB 포맷: JSON chunk 추출
+        const version = new Uint32Array(uint8Array.buffer, 4, 1)[0];
+        const length = new Uint32Array(uint8Array.buffer, 8, 1)[0];
+        const chunkLength = new Uint32Array(uint8Array.buffer, 12, 1)[0];
+        const chunkType = new Uint32Array(uint8Array.buffer, 16, 1)[0];
+        
+        if (chunkType === 0x4E4F534A) { // 'JSON' chunk
+          const jsonStart = 20;
+          const jsonEnd = jsonStart + chunkLength;
+          const jsonBytes = uint8Array.slice(jsonStart, jsonEnd);
+          const jsonString = new TextDecoder().decode(jsonBytes);
+          return JSON.parse(jsonString);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.warn('🟡 [PARSE] 원본 JSON 파싱 실패:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 모든 확장 데이터를 보존하는 함수
+   */
+  private async preserveAllExtensions(originalJson?: any): Promise<void> {
+    if (!this.document) return;
+
+    const root = this.document.getRoot();
+    console.log('🟢 [PRESERVE] 확장 보존 시작');
+    
+    try {
+      let originalExtensions = {};
+      let originalExtrasRoot = {};
+      
+      if (originalJson) {
+        originalExtensions = originalJson.extensions || {};
+        originalExtrasRoot = originalJson.extras || {};
+        console.log('🟢 [PRESERVE] 원본 확장:', Object.keys(originalExtensions));
+        console.log('🟢 [PRESERVE] 원본 Extras:', originalExtrasRoot);
+      }
+      
+      // Root에 모든 확장 데이터를 extras로 보존
+      const currentExtras = root.getExtras() || {};
+      root.setExtras({
+        ...currentExtras,
+        originalExtensions,
+        originalExtras: originalExtrasRoot
+      });
+      
+      // 각 노드의 확장 정보도 보존
+      if (originalJson?.nodes) {
+        root.listNodes().forEach((node, index) => {
+          const originalNode = originalJson.nodes[index];
+          if (originalNode?.extensions || originalNode?.extras) {
+            const nodeExtras = node.getExtras() || {};
+            node.setExtras({
+              ...nodeExtras,
+              originalExtensions: originalNode.extensions || {},
+              originalExtras: originalNode.extras || {}
+            });
+          }
+        });
+      }
+      
+      console.log('🟢 [PRESERVE] 확장 보존 완료');
+    } catch (error) {
+      console.warn('🟡 [PRESERVE] 확장 보존 중 오류:', error);
     }
   }
 
@@ -372,17 +456,8 @@ export class GLTFDocumentManager {
       console.log('🟡 [EXPORT] - 머티리얼 수:', this.document.getRoot().listMaterials().length);
       console.log('🟡 [EXPORT] - 텍스처 수:', this.document.getRoot().listTextures().length);
 
-      // Export 전에 Root extras를 재설정하여 누락 방지
-      const root = this.document.getRoot();
-      const extras = root.getExtras();
-      if (extras?.vrm || extras?.vrmMetadata) {
-        root.setExtras({
-          ...extras,
-          vrm: extras.vrm,
-          vrmMetadata: extras.vrmMetadata,
-        });
-        console.log('🟢 [EXPORT] Root extras 재설정 완료:', root.getExtras());
-      }
+      // Export 전에 모든 확장 데이터 복원
+      await this.restoreAllExtensions();
 
       const arrayBuffer = await this.io.writeBinary(this.document, {
         includeCustomExtensions: true
@@ -393,6 +468,49 @@ export class GLTFDocumentManager {
     } catch (error) {
       console.error('🔴 [EXPORT] gltf-transform 내보내기 실패:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 저장된 확장 데이터를 Document에 복원
+   */
+  private async restoreAllExtensions(): Promise<void> {
+    if (!this.document) return;
+
+    const root = this.document.getRoot();
+    const rootExtras = root.getExtras();
+    
+    if (rootExtras?.originalExtensions) {
+      console.log('🟢 [RESTORE] 확장 데이터 복원 시작');
+      
+      try {
+        // 원본 확장 정보를 Document JSON에 직접 설정
+        const writeCtx = this.document.createWriteContext();
+        if (writeCtx.jsonDoc && writeCtx.jsonDoc.json) {
+          writeCtx.jsonDoc.json.extensions = {
+            ...writeCtx.jsonDoc.json.extensions,
+            ...rootExtras.originalExtensions
+          };
+          
+          if (rootExtras.originalExtras) {
+            writeCtx.jsonDoc.json.extras = {
+              ...writeCtx.jsonDoc.json.extras,
+              ...rootExtras.originalExtras
+            };
+          }
+        }
+        
+        console.log('🟢 [RESTORE] 확장 데이터 복원 완료');
+      } catch (error) {
+        console.warn('🟡 [RESTORE] 확장 복원 실패, extras로 대체:', error);
+        
+        // 복원 실패 시 extras에 보존
+        root.setExtras({
+          ...rootExtras,
+          extensions: rootExtras.originalExtensions,
+          extras: rootExtras.originalExtras
+        });
+      }
     }
   }
 

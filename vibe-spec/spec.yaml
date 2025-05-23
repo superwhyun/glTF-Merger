@@ -4,7 +4,7 @@
 project:
   name: "GLTF-VRM-Merger"
   description: "VRM과 GLTF 모델을 로드하고 노드를 병합/복사/삭제할 수 있는 웹 기반 3D 모델 에디터"
-  version: "2.3.6"
+  version: "2.3.7"
   technology_stack:
     - "Next.js 15.2.4"
     - "React 19"  
@@ -45,85 +45,5 @@ file_structure:
   vibe-spec:
     - "spec.yaml: 프로젝트 사양서"
 
-recent_changes:
-  - 버전: "2.3.6"
-    날짜: "2025-05-23"
-    변경내용:
-      - "ModelViewer에 드롭존 기능 통합"
-      - "기존 ModelDropZone 컴포넌트 사용 중단"
-      - "렌더링 영역에서 직접 파일 드롭 처리 가능"
-      - "드래그 오버레이와 로딩 상태 표시 추가"
-      - "빈 상태 UI로 사용자 가이드 제공"
-      - "파일 드롭과 3D 렌더링을 하나의 컴포넌트로 단순화"
-  - 버전: "2.3.3"
-    날짜: "2025-05-23"
-    변경내용:
-      - "Scene Graph UI 개선 완료"
-      - "펼치기/접기 버튼 제거하고 클릭으로 펼치기/접기 동작으로 변경"
-      - "노드 가시성 제어 아이콘(눈 모양) 추가"
-      - "Three.js 렌더링과 gltf-transform Document 연동"
-      - "가시성 토글 시 실시간 렌더링 적용"
-      - "UI 상호작용 개선으로 더 직관적인 사용자 경험 제공"
-  - 버전: "2.3.2"
-    날짜: "2025-05-22"
-    변경내용:
-      - "VRMA 애니메이션 적용 문제 해결"
-      - "createAnimationClipFromVRMA 함수 대폭 개선"
-      - "VRM 애니메이션 라이브러리 API 호출 방식 다양화"
-      - "GLTF 애니메이션 데이터 직접 처리 로직 추가"
-      - "VRM humanoid 본 매핑 시스템 구현"
-      - "VRMA 본 이름을 VRM 본 이름으로 리맵핑 기능"
-      - "애니메이션 트랙 데이터 보존 및 변환 개선"
-  - 버전: "2.3.1"
-    날짜: "2025-05-22"
-    변경내용:
-      - "VRM 파일 인식 문제 해결"
-      - "ModelViewer에서 주석처리된 VRM 감지 코드 복원"
-      - "VRM 파일과 일반 GLB 파일 구분 로직 수정"
-      - "VRMA 드롭존 활성화 조건 수정 (VRM 로드 시 활성화)"
-      - "VRM 로드 시 적절한 로그 메시지 추가"
-  - 버전: "2.3.0"
-    날짜: "2025-05-22"
-    변경내용:
-      - "gltf-transform 기반 새로운 트리 컴포넌트 구현 완료"
-      - "GLTFModelTree: Document 기반 모델 구조 분석 및 표시"
-      - "GLTFSceneGraph: Scene Graph 전용 노드 조작 UI"
-      - "gltf-transform-utils.ts: Scene Graph 추출 및 조작 유틸리티"
-      - "드래그앤드롭 기반 노드 이동, 복사, 삭제 기능"
-      - "클립보드 시스템을 GLTFNodeInfo 기반으로 전환"
-      - "검색, 필터링, 통계 정보 표시 기능"
-  - 버전: "2.2.0"
-    날짜: "2025-05-22"
-    변경내용:
-      - "Three.js 기반 Scene Graph 트리 컴포넌트들 삭제"
-      - "model-tree.tsx, enhanced-model-tree.tsx, scene-graph-tree.tsx 제거"
-      - "three-scene-utils.ts 유틸리티 삭제"
-      - "gltf-transform 기반 새로운 트리 컴포넌트 구현 준비"
-      - "모델 구조 분석 로직을 gltf-transform으로 전환 예정"
-  - 버전: "2.1.0"
-    날짜: "2025-05-22"
-    변경내용:
-      - "glTF-Transform 라이브러리 도입 준비 (현재 비활성화)"
-      - "GLTFDocumentManager 클래스 기본 구조 구현"
-      - "향후 고급 모델 편집 기능을 위한 기반 코드 마련"
-      - "현재는 기존 Three.js 기반 시스템 유지"
-  - 버전: "2.0.2"
-    날짜: "2025-05-22"
-    변경내용:
-      - "VRM 파일 내보내기 기능 추가"
-      - "Scene Graph 기반 모델을 원본 형식(GLB/VRM)에 맞게 다운로드 가능"
-      - "VRM 메타데이터 보존 지원"
-
-known_issues:
-  - "복잡한 스켈레톤 구조가 있는 모델에서 일부 본 참조가 누락될 수 있음"
-  - "일부 VRM 확장 속성이 내보내기 시 보존되지 않을 수 있음"
-
 todo_list:
-  - "Scene Graph 아키텍처 개선 (성능 최적화):"
-    - "현재 문제: gltf-transform Document 기반 Scene Graph는 변경 시 전체 재직렬화로 인한 성능 저하"
-    - "개선 방향: Three.js Scene 기반 Scene Graph로 전환"
-    - "Three.js Scene을 직접 순회하여 트리 구성 (scene.children 활용)"
-    - "노드 조작을 Three.js에서 직접 수행하여 즉시 렌더링 반영"
-    - "GLTFDocumentManager는 백그라운드에서 변경사항 추적 역할로 변경"
-    - "Document 동기화는 내보내기 시에만 수행하여 성능 개선"
-    - "예상 성능: 노드 조작 시 즉시 반영 (0ms), 전체 Document 재생성 불필요"
+  - 

@@ -88,7 +88,9 @@ export function extractSceneGraph(document: Document): GLTFNodeInfo[] {
           camera: node.getCamera() ? 'camera_ref' : null,
           skin: node.getSkin() ? 'skin_ref' : null,
           children: node.listChildren().map(child => nodes.indexOf(child)),
-          extras: node.getExtras()
+          extras: node.getExtras(),
+          extensions: node.getExtras()?.originalExtensions || {},
+          hasExtensions: !!(node.getExtras()?.originalExtensions && Object.keys(node.getExtras().originalExtensions).length > 0)
         },
         count: node.listChildren().length,
         depth: 1,
@@ -245,25 +247,65 @@ export function extractSceneGraph(document: Document): GLTFNodeInfo[] {
 
   // extensions
   const extensionsUsed = root.listExtensionsUsed()
+  const extensionsData: GLTFNodeInfo[] = []
+  
   if (extensionsUsed.length > 0) {
-    structure.push({
-      id: 'extensions',
-      name: `Extensions`,
-      type: 'extensions',
-      children: extensionsUsed.map((ext, index) => ({
+    extensionsUsed.forEach((ext, index) => {
+      const extInstance = root.getExtension(ext.extensionName)
+      const rootExtras = root.getExtras()
+      
+      extensionsData.push({
         id: `extension_${index}`,
         name: ext.extensionName,
         type: 'extensions',
         children: [],
         properties: {
-          required: root.listExtensionsRequired().includes(ext)
+          required: root.listExtensionsRequired().includes(ext),
+          active: !!extInstance,
+          data: extInstance || rootExtras?.[ext.extensionName] || rootExtras?.originalExtensions?.[ext.extensionName],
+          preserved: !!(rootExtras?.originalExtensions?.[ext.extensionName])
         },
         count: 1,
         depth: 1,
         uuid: `extension_${index}`
-      })),
-      properties: {},
-      count: extensionsUsed.length,
+      })
+    })
+    
+    // 보존된 확장도 별도 표시
+    const rootExtras = root.getExtras()
+    if (rootExtras?.originalExtensions) {
+      Object.keys(rootExtras.originalExtensions).forEach((extName, index) => {
+        if (!extensionsUsed.find(e => e.extensionName === extName)) {
+          extensionsData.push({
+            id: `preserved_extension_${index}`,
+            name: `${extName} (preserved)`,
+            type: 'extensions',
+            children: [],
+            properties: {
+              required: false,
+              active: false,
+              data: rootExtras.originalExtensions[extName],
+              preserved: true
+            },
+            count: 1,
+            depth: 1,
+            uuid: `preserved_extension_${index}`
+          })
+        }
+      })
+    }
+    
+    structure.push({
+      id: 'extensions',
+      name: `Extensions`,
+      type: 'extensions',
+      children: extensionsData,
+      properties: {
+        total: extensionsData.length,
+        active: extensionsUsed.length,
+        preserved: rootExtras?.originalExtensions ? Object.keys(rootExtras.originalExtensions).length : 0
+      },
+      count: extensionsData.length,
       depth: 0,
       uuid: 'extensions'
     })
@@ -343,7 +385,9 @@ function buildNodeHierarchy(node: Node, nodeId: string, depth: number): GLTFNode
       mesh: node.getMesh()?.getName() || null,
       camera: node.getCamera()?.getName() || null,
       skin: node.getSkin()?.getName() || null,
-      extras: node.getExtras()
+      extras: node.getExtras(),
+      extensions: node.getExtras()?.originalExtensions || {},
+      hasExtensions: !!(node.getExtras()?.originalExtensions && Object.keys(node.getExtras().originalExtensions).length > 0)
     },
     count: node.listChildren().length,
     depth,
