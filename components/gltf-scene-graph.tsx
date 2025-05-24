@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
-import { Move, Copy, Trash2, Search, Filter, Eye, EyeOff } from "lucide-react"
+import { Move, Trash2, Search, Filter, Eye, EyeOff, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
@@ -18,16 +18,10 @@ import {
 interface GLTFSceneGraphProps {
   document: Document | null
   onNodeMove?: (sourceNodeId: string, targetNodeId: string) => void
-  onNodeCopy?: (sourceNodeId: string, targetNodeId: string) => void
   onNodeDelete?: (nodeId: string) => void
   onSceneUpdate?: () => void
   side: "left" | "right"
   otherSideDocument?: Document | null
-  clipboard?: {
-    nodeInfo: GLTFNodeInfo | null
-    source: "left" | "right" | null
-  }
-  onClipboardChange?: (data: { nodeInfo: GLTFNodeInfo | null; source: "left" | "right" | null }) => void
   onNodeVisibilityChange?: (nodeId: string, visible: boolean) => void
   threeScene?: THREE.Scene | null
 }
@@ -39,13 +33,10 @@ interface GLTFSceneGraphProps {
 export function GLTFSceneGraph({
   document,
   onNodeMove,
-  onNodeCopy,
   onNodeDelete,
   onSceneUpdate,
   side,
   otherSideDocument,
-  clipboard,
-  onClipboardChange,
   onNodeVisibilityChange,
   threeScene
 }: GLTFSceneGraphProps) {
@@ -142,19 +133,13 @@ export function GLTFSceneGraph({
   }
 
   // 노드 복사 (클립보드에 저장)
+  // 더미 함수들 (복사/붙여넣기 기능 비활성화됨)
   const copyNodeToClipboard = (nodeInfo: GLTFNodeInfo) => {
-    onClipboardChange?.({
-      nodeInfo,
-      source: side
-    })
+    // 복사 기능 비활성화
   }
 
-  // 클립보드에서 붙여넣기
   const pasteFromClipboard = (targetNodeId: string) => {
-    if (!clipboard?.nodeInfo || clipboard.source === side) return
-    
-    onNodeCopy?.(clipboard.nodeInfo.id, targetNodeId)
-    onSceneUpdate?.()
+    // 붙여넣기 기능 비활성화
   }
 
   // 드래그 앤 드롭 핸들러
@@ -205,13 +190,6 @@ export function GLTFSceneGraph({
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <h3 className="font-medium">Scene Graph (노드 편집)</h3>
-          <div className="flex gap-2">
-            {clipboard?.nodeInfo && clipboard.source !== side && (
-              <Badge variant="secondary" className="text-xs">
-                클립보드: {clipboard.nodeInfo.name}
-              </Badge>
-            )}
-          </div>
         </div>
 
         {/* 검색 및 필터 */}
@@ -261,7 +239,6 @@ export function GLTFSceneGraph({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              clipboard={clipboard}
               side={side}
             />
           ))}
@@ -289,10 +266,6 @@ interface SceneGraphNodeProps {
   onDragOver: (e: React.DragEvent, nodeId: string) => void
   onDragLeave: () => void
   onDrop: (e: React.DragEvent, targetNodeId: string) => void
-  clipboard?: {
-    nodeInfo: GLTFNodeInfo | null
-    source: "left" | "right" | null
-  }
   side: "left" | "right"
 }
 
@@ -312,14 +285,13 @@ function SceneGraphNode({
   onDragOver,
   onDragLeave,
   onDrop,
-  clipboard,
   side
 }: SceneGraphNodeProps) {
   const isExpanded = expandedNodes.has(nodeInfo.id)
   const isSelected = selectedNodeId === nodeInfo.id
   const hasChildren = nodeInfo.children.length > 0
   const isDragOver = dragOverNodeId === nodeInfo.id
-  const canPaste = clipboard?.nodeInfo && clipboard.source !== side
+  const canPaste = false // 복사/붙여넣기 기능 비활성화
   const isVisible = nodeVisibility[nodeInfo.id] !== false // 기본값은 true
 
   return (
@@ -390,23 +362,6 @@ function SceneGraphNode({
 
         {/* 액션 버튼들 */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="p-1 h-6 w-6"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCopy(nodeInfo)
-                }}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>복사</TooltipContent>
-          </Tooltip>
-
           {canPaste && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -468,7 +423,6 @@ function SceneGraphNode({
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
               onDrop={onDrop}
-              clipboard={clipboard}
               side={side}
             />
           ))}

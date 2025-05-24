@@ -16,6 +16,7 @@ import { parseGLTF } from "@/lib/model-parser"
 
 interface ModelViewerProps {
   onModelLoaded?: (file: File | null, structure: any | null, url: string | null, error: string | null) => void
+  onModelLoadComplete?: () => void // 일반 모델 로드 완료 시 호출
   onSceneReady?: (scene: THREE.Scene) => void
   onAnimationsLoaded?: (animations: THREE.AnimationClip[]) => void
   onVRMLoaded?: (vrm: VRM | null, vrmData?: any) => void
@@ -26,6 +27,7 @@ interface ModelViewerProps {
 
 export function ModelViewer({ 
   onModelLoaded, 
+  onModelLoadComplete,
   onSceneReady, 
   onAnimationsLoaded, 
   onVRMLoaded, 
@@ -47,6 +49,8 @@ export function ModelViewer({
   const [currentUrl, setCurrentUrl] = useState(initialUrl || "")
 
   // Three.js 객체 참조 저장
+  // Bounding box helper ref
+  const boundingBoxHelperRef = useRef<THREE.Box3Helper | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -59,6 +63,9 @@ export function ModelViewer({
   const vrmRef = useRef<VRM | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const urlRef = useRef<string>(currentUrl)
+
+  // OrbitControls 인스턴스 참조 저장
+  const controlsRef = useRef<OrbitControls | null>(null)
 
   const documentManagerRef = useRef<any>(null)
 
@@ -214,6 +221,11 @@ useEffect(() => {
         i++;
       }
     }
+    // Remove previous bounding box helper if any
+    if (boundingBoxHelperRef.current) {
+      scene.remove(boundingBoxHelperRef.current);
+      boundingBoxHelperRef.current = null;
+    }
     // 기존 모델 정리
     if (modelRef.current) {
       scene.remove(modelRef.current);
@@ -300,18 +312,46 @@ useEffect(() => {
       model.name = 'exportableModel'; // 내보내기를 위한 이름 설정
       scene.add(model);
       modelRef.current = model;
-      // 모델 크기 조정 및 위치 조정
+      // Bounding box 계산
       const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3()).length();
+      // 모델 크기 조정 및 위치 조정
+      const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
-      // 카메라 위치 조정
+
+      // Reposition the model so that its bottom is at Y=0 and horizontally centered
+      model.position.x += model.position.x - center.x;
+      model.position.y += model.position.y - box.min.y;
+      model.position.z += model.position.z - center.z;
+
+      // 위치 조정 후 Bounding box helper 추가
+      const updatedBox = new THREE.Box3().setFromObject(model);
+      const updatedHelper = new THREE.Box3Helper(updatedBox, new THREE.Color(0xff0000));
+      scene.add(updatedHelper);
+      boundingBoxHelperRef.current = updatedHelper;
+      // 카메라 위치 자동 조정 (Bounding box를 프레이밍)
       if (cameraRef.current) {
         const camera = cameraRef.current;
-        camera.position.copy(center);
-        camera.position.x += size / 2.0;
-        camera.position.y += size / 5.0;
-        camera.position.z += size / 2.0;
-        camera.lookAt(center);
+
+        const boundingSphere = updatedBox.getBoundingSphere(new THREE.Sphere());
+        const radius = boundingSphere.radius;
+
+        const aspect = camera.aspect;
+        const fov = camera.fov * (Math.PI / 180);
+        const verticalFOVHeight = Math.tan(fov / 2);
+        const horizontalFOVWidth = verticalFOVHeight * aspect;
+        const maxFOV = Math.max(verticalFOVHeight, horizontalFOVWidth);
+
+        const distance = radius / maxFOV * 1.8; // Add padding (20%)
+
+        camera.position.copy(boundingSphere.center.clone().add(new THREE.Vector3(0, 0, distance)));
+        camera.lookAt(boundingSphere.center);
+        camera.updateProjectionMatrix();
+
+        // OrbitControls의 target을 모델 중심으로 맞추고 update
+        if (controlsRef.current) {
+          controlsRef.current.target.copy(boundingSphere.center);
+          controlsRef.current.update();
+        }
       }
       // 애니메이션 처리
       if (gltf.animations && gltf.animations.length > 0) {
@@ -352,6 +392,12 @@ useEffect(() => {
       }
       setIsModelLoaded(true);
       console.log('모델 로드 완료');
+      
+      // 일반 모델 로드 완료 콜백 호출 (모델 객체 전달)
+      if (onModelLoadComplete) {
+        onModelLoadComplete(model);
+        console.log('onModelLoadComplete 콜백 호출됨 (모델 객체 포함)');
+      }
     } catch (error) {
       console.error("모델 로딩 오류:", error);
       setError(`모델 로딩 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
@@ -403,6 +449,8 @@ useEffect(() => {
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.05
+    // OrbitControls 인스턴스를 ref로 저장
+    controlsRef.current = controls
 
     // 그리드 헬퍼 추가
     const gridHelper = new THREE.GridHelper(10, 10)
@@ -516,6 +564,12 @@ useEffect(() => {
 
       if (rendererRef.current) {
         rendererRef.current.dispose()
+      }
+
+      // Bounding box helper 제거
+      if (boundingBoxHelperRef.current && sceneRef.current) {
+        sceneRef.current.remove(boundingBoxHelperRef.current)
+        boundingBoxHelperRef.current = null
       }
 
       // 애니메이션 정리

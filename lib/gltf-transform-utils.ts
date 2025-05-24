@@ -1,4 +1,7 @@
-import { Document, Node, Scene, Mesh, Material, Texture } from '@gltf-transform/core'
+import { Document, Node, Scene, Mesh, Material, Texture, Accessor, Buffer } from '@gltf-transform/core'
+
+// TypedArray 타입 정의
+type TypedArray = Float32Array | Uint32Array | Uint16Array | Uint8Array | Int32Array | Int16Array | Int8Array
 
 /**
  * gltf-transform 기반 모델 구조 분석 및 Scene Graph 조작 유틸리티
@@ -200,10 +203,25 @@ export function extractSceneGraph(document: Document): GLTFNodeInfo[] {
         id: `animation_${index}`,
         name: animation.getName() || `Animation ${index}`,
         type: 'animations',
-        children: [],
+        children: animation.listChannels().map((channel, channelIndex) => ({
+          id: `animation_${index}_channel_${channelIndex}`,
+          name: `Channel ${channelIndex}`,
+          type: 'animations',
+          children: [],
+          properties: {
+            target: channel.getTargetNode()?.getName() || 'Unknown',
+            path: channel.getTargetPath(),
+            sampler: channel.getSampler()?.getName() || `Sampler ${channelIndex}`,
+            interpolation: channel.getSampler()?.getInterpolation() || 'LINEAR'
+          },
+          count: 1,
+          depth: 2,
+          uuid: `animation_${index}_channel_${channelIndex}`
+        })),
         properties: {
           channelCount: animation.listChannels().length,
           samplerCount: animation.listSamplers().length,
+          duration: calculateAnimationDuration(animation),
           extras: animation.getExtras()
         },
         count: animation.listChannels().length,
@@ -570,9 +588,9 @@ export function moveNodeInDocument(document: Document, sourceNodeId: string, tar
 }
 
 /**
- * 노드 복사 (실제 Document에서)
+ * 노드 복사 (실제 Document에서) - DEPRECATED
  */
-export function copyNodeInDocument(document: Document, sourceNodeId: string, targetParentId: string): boolean {
+function copyNodeInDocument(document: Document, sourceNodeId: string, targetParentId: string): boolean {
   try {
     const sourceNode = findNodeByIdInDocument(document, sourceNodeId)
     if (!sourceNode) {
@@ -699,9 +717,169 @@ function findSceneByIdInDocument(document: Document, sceneId: string): Scene | n
   return null
 }
 
-function getNodeId(document: Document, node: Node): string {
-  // 현재는 사용하지 않음 - 계층구조 ID 사용
-  return 'node_unknown'
+/**
+ * 애니메이션 지속 시간 계산
+ */
+function calculateAnimationDuration(animation: any): number {
+  let maxTime = 0;
+  
+  try {
+    animation.listSamplers().forEach((sampler: any) => {
+      const input = sampler.getInput();
+      if (input && input.getArray) {
+        const times = input.getArray();
+        if (times && times.length > 0) {
+          const lastTime = times[times.length - 1];
+          maxTime = Math.max(maxTime, lastTime);
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('애니메이션 지속 시간 계산 실패:', error);
+  }
+  
+  return maxTime;
+}
+
+/**
+ * Document에 새 애니메이션 추가
+ */
+export function addAnimationToDocument(document: Document, animationClip: any): boolean {
+  try {
+    console.log('Document에 애니메이션 추가 시작:', animationClip.name);
+    console.log('애니메이션 클립 정보:', {
+      name: animationClip.name,
+      duration: animationClip.duration,
+      tracks: animationClip.tracks.length
+    });
+    
+    const root = document.getRoot();
+    
+    // Three.js AnimationClip을 gltf-transform Animation으로 변환
+    const gltfAnimation = document.createAnimation()
+      .setName(animationClip.name || 'New Animation');
+    
+    // 기존 버퍼 또는 새 버퍼 생성
+    let buffer = root.listBuffers()[0];
+    if (!buffer) {
+      buffer = document.createBuffer();
+    }
+    
+    console.log(`처리할 트랙 수: ${animationClip.tracks.length}`);
+    let validTrackCount = 0;
+    
+    // 트랙들을 채널과 샘플러로 변환
+    animationClip.tracks.forEach((track: any, trackIndex: number) => {
+      try {
+        console.log(`트랙 ${trackIndex} 처리:`, track.name);
+        console.log(`트랙 타입:`, track.constructor.name);
+        console.log(`트랙 데이터:`, {
+          times: track.times?.length || 0,
+          values: track.values?.length || 0,
+          duration: track.times ? track.times[track.times.length - 1] : 0
+        });
+        
+        // 트랙 이름에서 노드 이름과 속성 추출
+        const trackParts = track.name.split('.');
+        const nodeName = trackParts[0];
+        const property = trackParts[1];
+        
+        console.log(`노드 이름: ${nodeName}, 속성: ${property}`);
+        
+        // 해당 노드 찾기
+        const targetNode = root.listNodes().find(node => node.getName() === nodeName);
+        if (!targetNode) {
+          console.warn(`애니메이션 타겟 노드를 찾을 수 없음: ${nodeName}`);
+          return;
+        }
+        
+        console.log(`타겟 노드 찾음: ${targetNode.getName()}`);
+        
+        // 시간 데이터와 값 데이터 확인
+        const times = track.times;
+        const values = track.values;
+        
+        if (!times || !values || times.length === 0 || values.length === 0) {
+          console.warn(`애니메이션 트랙 데이터가 없음: ${track.name}`);
+          return;
+        }
+        
+        console.log(`데이터 크기 - times: ${times.length}, values: ${values.length}`);
+        console.log(`시간 범위: ${times[0]} ~ ${times[times.length - 1]}`);
+        console.log(`첫 번째 값:`, values.slice(0, Math.min(4, values.length)));
+        
+        // 데이터 유효성 검증
+        if (times[times.length - 1] <= 0) {
+          console.warn(`유효하지 않은 애니메이션 지속시간: ${times[times.length - 1]}`);
+          return;
+        }
+        
+        // Accessor 생성 (시간)
+        const timeAccessor = document.createAccessor()
+          .setArray(new Float32Array(times))
+          .setType('SCALAR')
+          .setBuffer(buffer);
+        
+        // Accessor 생성 (값) - 속성에 따라 타입 결정
+        let valueAccessor;
+        let targetPath = property;
+        
+        if (property === 'position' || property === 'scale') {
+          valueAccessor = document.createAccessor()
+            .setArray(new Float32Array(values))
+            .setType('VEC3')
+            .setBuffer(buffer);
+        } else if (property === 'quaternion') {
+          targetPath = 'rotation'; // glTF에서는 rotation으로 사용
+          valueAccessor = document.createAccessor()
+            .setArray(new Float32Array(values))
+            .setType('VEC4')
+            .setBuffer(buffer);
+        } else {
+          console.warn(`지원하지 않는 애니메이션 속성: ${property}`);
+          return;
+        }
+        
+        // 샘플러 생성
+        const sampler = document.createAnimationSampler()
+          .setInput(timeAccessor)
+          .setOutput(valueAccessor)
+          .setInterpolation('LINEAR'); // 기본값
+        
+        // 채널 생성
+        const channel = document.createAnimationChannel()
+          .setTargetNode(targetNode)
+          .setTargetPath(targetPath)
+          .setSampler(sampler);
+        
+        gltfAnimation.addSampler(sampler);
+        gltfAnimation.addChannel(channel);
+        
+        validTrackCount++;
+        console.log(`트랙 ${trackIndex} 추가 완료: ${nodeName}.${targetPath}`);
+        
+      } catch (trackError) {
+        console.error(`트랙 처리 실패 (${track.name}):`, trackError);
+      }
+    });
+    
+    if (gltfAnimation.listChannels().length > 0) {
+      // Document에 애니메이션 추가
+      root.listAnimations().push(gltfAnimation);
+      console.log(`최종 애니메이션 채널 수: ${gltfAnimation.listChannels().length}`);
+      console.log(`유효 트랙 수: ${validTrackCount}/${animationClip.tracks.length}`);
+      console.log(`애니메이션 "${animationClip.name}" Document에 추가 완료`);
+      console.log(`현재 Document 총 애니메이션 수: ${root.listAnimations().length}`);
+      return true;
+    } else {
+      console.warn('생성된 채널이 없어서 애니메이션을 추가하지 않음');
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('Document에 애니메이션 추가 실패:', error);
+    return false;
+  }
 }
 
 /**
@@ -730,4 +908,70 @@ export function calculateNodeStats(nodeInfo: GLTFNodeInfo): {
   nodeInfo.children.forEach(child => traverse(child))
   
   return { totalItems, maxDepth, leafNodes }
+}
+
+/**
+ * 서로 다른 Document 간에 노드 복사 - DEPRECATED
+ */
+function copyNodeBetweenDocuments(
+  sourceDocument: Document,
+  targetDocument: Document, 
+  sourceNodeId: string,
+  targetParentId: string
+): boolean {
+  try {
+    const sourceNode = findNodeByIdInDocument(sourceDocument, sourceNodeId)
+    if (!sourceNode) {
+      console.warn(`Source node ${sourceNodeId} not found in source document`)
+      return false
+    }
+
+    const targetParent = findNodeByIdInDocument(targetDocument, targetParentId) || 
+                        findSceneByIdInDocument(targetDocument, targetParentId)
+    if (!targetParent) {
+      console.warn(`Target parent ${targetParentId} not found in target document`)
+      return false
+    }
+
+    // 서로 다른 Document 간 노드 복사
+    const copiedNode = cloneNodeBetweenDocuments(sourceDocument, targetDocument, sourceNode)
+    
+    // 새 부모에 추가
+    if (targetParent instanceof Node) {
+      targetParent.addChild(copiedNode)
+      console.log(`Copied node from source document to ${targetParent.getName()}`)
+    } else if (targetParent instanceof Scene) {
+      targetParent.addChild(copiedNode)
+      console.log(`Copied node from source document to scene ${targetParent.getName()}`)
+    }
+
+    return true
+  } catch (error) {
+    console.error(`Failed to copy node between documents:`, error)
+    return false
+  }
+}
+
+/**
+ * 서로 다른 Document 간 노드 복사 (간단한 버전)
+ */
+function cloneNodeBetweenDocuments(sourceDoc: Document, targetDoc: Document, sourceNode: Node): Node {
+  // 간단한 노드 복사 - 기본 속성만
+  const newNode = targetDoc.createNode()
+    .setName(`${sourceNode.getName()}_copy`)
+    .setTranslation(sourceNode.getTranslation())
+    .setRotation(sourceNode.getRotation())
+    .setScale(sourceNode.getScale())
+
+  // 메시가 있는 경우 참조만 복사 (실제 메시 데이터는 복사하지 않음)
+  // 이는 단순화된 버전이며, 필요시 확장 가능
+  console.log(`Cloned node: ${sourceNode.getName()} -> ${newNode.getName()}`)
+  
+  // 자식 노드들 재귀 복사
+  sourceNode.listChildren().forEach(childNode => {
+    const clonedChild = cloneNodeBetweenDocuments(sourceDoc, targetDoc, childNode)
+    newNode.addChild(clonedChild)
+  })
+  
+  return newNode
 }

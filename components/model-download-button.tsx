@@ -14,8 +14,6 @@ interface ModelDownloadButtonProps {
   animations?: THREE.AnimationClip[]
   disabled?: boolean
   modelStructure?: any // 모델 구조에서 애니메이션 정보를 가져오기 위해 추가
-  vrmData?: any // VRM 메타데이터 및 설정 - VRM 파일 내보내기용
-  isVRM?: boolean // VRM 모델인지 여부
   documentManager?: any | null // GLTFDocumentManager 참조 (임시 any)
 }
 
@@ -25,8 +23,6 @@ export function ModelDownloadButton({
   animations = [], 
   disabled = false, 
   modelStructure,
-  vrmData,
-  isVRM = false,
   documentManager
 }: ModelDownloadButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
@@ -45,26 +41,46 @@ export function ModelDownloadButton({
     setIsExporting(true)
 
     try {
-      // 적절한 확장자 처리
+      // GLB 확장자 처리
       let exportFileName = fileName;
-      
-      if (isVRM) {
-        if (!fileName.toLowerCase().endsWith(".vrm")) {
-          exportFileName = fileName.replace(/\.[^/.]+$/, "") + ".vrm";
-        }
-        console.log("VRM 내보내기 시작:", exportFileName);
-      } else {
-        if (!fileName.toLowerCase().endsWith(".glb")) {
-          exportFileName = fileName.replace(/\.[^/.]+$/, "") + ".glb";
-        }
-        console.log("GLB 내보내기 시작:", exportFileName);
+      if (!fileName.toLowerCase().endsWith(".glb")) {
+        exportFileName = fileName.replace(/\.[^/.]+$/, "") + ".glb";
       }
+      console.log("GLB 내보내기 시작:", exportFileName);
 
+      // 모델 구조에서 애니메이션 정보 추출
+      let exportAnimations: THREE.AnimationClip[] = [];
+      
+      // 1. 전달받은 animations 매개변수 사용
+      if (animations && animations.length > 0) {
+        exportAnimations = [...animations];
+        console.log(`매개변수에서 ${animations.length}개 애니메이션 추가`);
+      }
+      
+      // 2. modelStructure에서 추가 애니메이션 추출
+      if (modelStructure?.animations && Array.isArray(modelStructure.animations)) {
+        const structureAnimations = modelStructure.animations.filter((anim: any) => 
+          anim && typeof anim === 'object' && anim.name
+        );
+        exportAnimations = [...exportAnimations, ...structureAnimations];
+        console.log(`모델 구조에서 ${structureAnimations.length}개 애니메이션 추가`);
+      }
+      
+      console.log(`총 ${exportAnimations.length}개 애니메이션이 내보내기에 포함됨`);
+      
       // GLTFDocumentManager가 있으면 우선 사용
       if (documentManager) {
         console.log("🟢 [DOWNLOAD] GLTFDocumentManager를 사용한 내보내기 - gltf-transform Document 기반");
-        console.log("🟢 [DOWNLOAD] documentManager 존재:", !!documentManager);
-        console.log("🟢 [DOWNLOAD] documentManager.getDocument():", documentManager.getDocument());
+        
+        // Document 상태 확인
+        const gltfDocument = documentManager.getDocument();
+        if (gltfDocument) {
+          const animations = gltfDocument.getRoot().listAnimations();
+          console.log(`🟢 [DOWNLOAD] Document에 포함된 애니메이션: ${animations.length}개`);
+          animations.forEach((anim, index) => {
+            console.log(`  - 애니메이션 ${index}: ${anim.getName()}, 채널: ${anim.listChannels().length}개`);
+          });
+        }
         
         const arrayBuffer = await documentManager.exportToGLB();
         
@@ -83,9 +99,10 @@ export function ModelDownloadButton({
           URL.revokeObjectURL(url);
         }, 100);
 
+        const documentAnimationCount = gltfDocument ? gltfDocument.getRoot().listAnimations().length : 0;
         toast({
           title: "내보내기 성공",
-          description: `${exportFileName} 파일이 다운로드되었습니다. (gltf-transform 사용)`,
+          description: `${exportFileName} 파일이 다운로드되었습니다. (애니메이션 ${documentAnimationCount}개 포함)`,
         });
       } else {
         throw new Error("GLTFDocumentManager가 없습니다. 모델을 다시 로드해주세요.");
@@ -116,7 +133,7 @@ export function ModelDownloadButton({
       ) : (
         <>
           <Download className="h-4 w-4" />
-          {isVRM ? "VRM 다운로드" : "GLB 다운로드"}
+          GLB 다운로드
         </>
       )}
     </Button>

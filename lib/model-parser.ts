@@ -1,4 +1,4 @@
-/**
+/****
  * GLB/VRM 파일을 파싱하여 구조를 추출하는 함수
  */
 export async function parseGLTF(file: File): Promise<any> {
@@ -78,8 +78,10 @@ function parseGLBStructure(arrayBuffer: ArrayBuffer): any {
   // 노드 정보 추가
   if (gltf.nodes) {
     gltf.nodes.forEach((node: any, index: number) => {
+      
+      const cleanName = node.name ? node.name.replace(/_\d+$/, "") : `Node ${index}`;
       structure.nodes[`node_${index}`] = {
-        name: node.name || `Node ${index}`,
+        name: cleanName,
         mesh: node.mesh !== undefined ? `mesh_${node.mesh}` : undefined,
         children: node.children || [],
         translation: node.translation,

@@ -38,7 +38,7 @@ export class GLTFDocumentManager {
       // WebIO로 읽기 시도
       this.document = await this.io.readBinary(uint8Array);
       
-      // VRM 및 기타 확장 데이터 검증 및 보존
+        // VRM 및 기타 확장 데이터 검증 및 보존 (읽기 전용)
       await this.preserveAllExtensions(originalJson);
       
       console.log('🟢 glTF-Transform Document 로드 성공:', this.document);
@@ -512,19 +512,12 @@ export class GLTFDocumentManager {
       console.log('🟡 [EXPORT] - 메시 수:', this.document.getRoot().listMeshes().length);
       console.log('🟡 [EXPORT] - 머티리얼 수:', this.document.getRoot().listMaterials().length);
       console.log('🟡 [EXPORT] - 텍스처 수:', this.document.getRoot().listTextures().length);
+      console.log('🟡 [EXPORT] - 애니메이션 수:', this.document.getRoot().listAnimations().length);
       
       // 현재 확장 상태 확인
       const root = this.document.getRoot();
       console.log('🟡 [EXPORT] - 선언된 확장:', root.listExtensionsUsed().map(e => e.extensionName));
       console.log('🟡 [EXPORT] - 필수 확장:', root.listExtensionsRequired().map(e => e.extensionName));
-      console.log('🟡 [EXPORT] - Root extras 키들:', Object.keys(root.getExtras() || {}));
-
-      // Export 전에 모든 확장 데이터 복원
-      await this.restoreAllExtensions();
-      
-      // 복원 후 상태 재확인
-      console.log('🟡 [EXPORT] 복원 후 - 선언된 확장:', root.listExtensionsUsed().map(e => e.extensionName));
-      console.log('🟡 [EXPORT] 복원 후 - Root extras 키들:', Object.keys(root.getExtras() || {}));
 
       const arrayBuffer = await this.io.writeBinary(this.document, {
         includeCustomExtensions: true,
@@ -536,121 +529,6 @@ export class GLTFDocumentManager {
     } catch (error) {
       console.error('🔴 [EXPORT] gltf-transform 내보내기 실패:', error);
       throw error;
-    }
-  }
-
-  /**
-   * 저장된 확장 데이터를 Document에 복원
-   */
-  private async restoreAllExtensions(): Promise<void> {
-    if (!this.document) return;
-
-    const root = this.document.getRoot();
-    const rootExtras = root.getExtras();
-    
-    if (!rootExtras?.originalExtensions) {
-      console.log('🟡 [RESTORE] 복원할 확장 데이터가 없습니다.');
-      return;
-    }
-
-    console.log('🟢 [RESTORE] 확장 데이터 복원 시작');
-    console.log('🟢 [RESTORE] 복원할 확장들:', Object.keys(rootExtras.originalExtensions));
-    
-    try {
-      const originalExtensions = rootExtras.originalExtensions;
-      
-      // 1. Document JSON에 직접 extensions 설정
-      const jsonDoc = this.document.getGraph().getLinks().find(link => 
-        link.getChild()?.constructor?.name === 'JSONDocument'
-      )?.getChild() as any;
-      
-      if (jsonDoc && jsonDoc.json) {
-        // Root level extensions 설정
-        if (!jsonDoc.json.extensions) {
-          jsonDoc.json.extensions = {};
-        }
-        
-        // 원본 extensions를 직접 복사
-        Object.assign(jsonDoc.json.extensions, originalExtensions);
-        
-        // extensionsUsed에 추가
-        if (!jsonDoc.json.extensionsUsed) {
-          jsonDoc.json.extensionsUsed = [];
-        }
-        
-        Object.keys(originalExtensions).forEach(extName => {
-          if (!jsonDoc.json.extensionsUsed.includes(extName)) {
-            jsonDoc.json.extensionsUsed.push(extName);
-          }
-        });
-        
-        // VRM extensions는 required로 설정
-        if (!jsonDoc.json.extensionsRequired) {
-          jsonDoc.json.extensionsRequired = [];
-        }
-        
-        Object.keys(originalExtensions).forEach(extName => {
-          if ((extName.startsWith('VRM') || extName.startsWith('VRMC_')) && 
-              !jsonDoc.json.extensionsRequired.includes(extName)) {
-            jsonDoc.json.extensionsRequired.push(extName);
-          }
-        });
-        
-        console.log('🟢 [RESTORE] Document JSON에 extensions 직접 설정:', Object.keys(originalExtensions));
-        console.log('🟢 [RESTORE] extensionsUsed:', jsonDoc.json.extensionsUsed);
-        console.log('🟢 [RESTORE] extensionsRequired:', jsonDoc.json.extensionsRequired);
-      } else {
-        console.warn('🟡 [RESTORE] JSON Document 접근 실패, 대체 방법 사용');
-        
-        // 대체 방법: Root extras에 설정
-        const newExtras = {
-          ...rootExtras,
-          ...originalExtensions,
-          originalExtensions: rootExtras.originalExtensions,
-          originalExtras: rootExtras.originalExtras
-        };
-        
-        root.setExtras(newExtras);
-      }
-
-      // 2. 각 노드의 확장도 복원
-      root.listNodes().forEach((node, index) => {
-        const nodeExtras = node.getExtras();
-        if (nodeExtras?.originalExtensions) {
-          const nodeNewExtras = {
-            ...nodeExtras,
-            ...nodeExtras.originalExtensions
-          };
-          node.setExtras(nodeNewExtras);
-          console.log(`🟢 [RESTORE] 노드 ${index} 확장 복원`);
-        }
-      });
-
-      // 3. 머티리얼 확장도 복원
-      root.listMaterials().forEach((material, index) => {
-        const materialExtras = material.getExtras();
-        if (materialExtras?.originalExtensions) {
-          const materialNewExtras = {
-            ...materialExtras,
-            ...materialExtras.originalExtensions
-          };
-          material.setExtras(materialNewExtras);
-          console.log(`🟢 [RESTORE] 머티리얼 ${index} 확장 복원`);
-        }
-      });
-      
-      console.log('🟢 [RESTORE] 모든 확장 데이터 복원 완료');
-    } catch (error) {
-      console.warn('🟡 [RESTORE] 확장 복원 중 오류:', error);
-      
-      // 실패 시 최소한 extras에는 보존
-      const fallbackExtras = {
-        ...rootExtras,
-        extensions: rootExtras.originalExtensions,
-        extras: rootExtras.originalExtras
-      };
-      root.setExtras(fallbackExtras);
-      console.log('🟡 [RESTORE] 폴백: extras에 확장 데이터 보존');
     }
   }
 
@@ -751,6 +629,39 @@ export class GLTFDocumentManager {
     }
 
     return json;
+  }
+
+  /**
+   * Document가 변경되었음을 알리는 메서드
+   */
+  notifyDocumentChanged(): void {
+    console.log('🔄 DocumentManager: Document 변경 알림');
+    // 필요한 경우 여기서 이벤트를 발생시킬 수 있음
+  }
+
+  /**
+   * Document에 애니메이션 추가
+   */
+  async addAnimation(animationClip: any): Promise<boolean> {
+    if (!this.document) {
+      console.error('Document가 없어서 애니메이션을 추가할 수 없음');
+      return false;
+    }
+
+    try {
+      const { addAnimationToDocument } = await import('./gltf-transform-utils');
+      const success = addAnimationToDocument(this.document, animationClip);
+      
+      if (success) {
+        this.notifyDocumentChanged();
+        console.log('DocumentManager: 애니메이션 추가 성공');
+      }
+      
+      return success;
+    } catch (error) {
+      console.error('DocumentManager: 애니메이션 추가 실패:', error);
+      return false;
+    }
   }
 }
 

@@ -1,7 +1,7 @@
-"use client"
+ "use client"
 
 import React, { useState, useEffect, useMemo } from "react"
-import { ChevronRight, ChevronDown, Copy, Trash2, Eye, EyeOff, Search, Database } from "lucide-react"
+import { ChevronRight, ChevronDown, Trash2, Eye, EyeOff, Search, Database, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
@@ -18,14 +18,9 @@ import {
 interface GLTFModelTreeProps {
   document: Document | null
   onNodeSelect?: (nodeInfo: GLTFNodeInfo | null) => void
-  onNodeCopy?: (nodeInfo: GLTFNodeInfo) => void
   onNodeMove?: (sourceNodeId: string, targetNodeId: string) => void
   onNodeDelete?: (nodeId: string) => void
   side: "left" | "right"
-  clipboard?: {
-    nodeInfo: GLTFNodeInfo | null
-    source: "left" | "right" | null
-  }
 }
 
 /**
@@ -35,27 +30,28 @@ interface GLTFModelTreeProps {
 export function GLTFModelTree({
   document,
   onNodeSelect,
-  onNodeCopy,
   onNodeMove, 
   onNodeDelete,
-  side,
-  clipboard
+  side
 }: GLTFModelTreeProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [showStats, setShowStats] = useState(false)
   
-  // glTF 구조 추출
+  // glTF 구조 추출 - modelStructure 변경 시에도 업데이트되도록 수정
   const sceneGraph = useMemo(() => {
     if (!document) return []
     try {
-      return extractSceneGraph(document)
+      console.log('GLTFModelTree: Document 구조 추출 중...')
+      const result = extractSceneGraph(document)
+      console.log('GLTFModelTree: 추출된 구조:', result.length, '개 섹션')
+      return result
     } catch (error) {
       console.error("glTF structure extraction failed:", error)
       return []
     }
-  }, [document])
+  }, [document]) // modelStructure 의존성 제거하고 document만 의존
   
   // 리소스 정보 추출
   const resourceInfo = useMemo(() => {
@@ -96,10 +92,6 @@ export function GLTFModelTree({
     onNodeSelect?.(nodeInfo)
   }
   
-  // 노드 복사
-  const copyNode = (nodeInfo: GLTFNodeInfo) => {
-    onNodeCopy?.(nodeInfo)
-  }
 
   // 노드 삭제
   const deleteNode = (nodeId: string) => {
@@ -186,9 +178,8 @@ export function GLTFModelTree({
                 expandedNodes={expandedNodes}
                 onToggle={toggleNode}
                 onSelect={selectNode}
-                onCopy={copyNode}
+                // onCopy prop removed
                 onDelete={deleteNode}
-                clipboard={clipboard}
                 side={side}
               />
             ))}
@@ -208,7 +199,6 @@ interface GLTFSectionComponentProps {
   expandedNodes: Set<string>
   onToggle: (nodeId: string) => void
   onSelect: (nodeInfo: GLTFNodeInfo) => void
-  onCopy: (nodeInfo: GLTFNodeInfo) => void
   onDelete: (nodeId: string) => void
   clipboard?: {
     nodeInfo: GLTFNodeInfo | null
@@ -279,20 +269,6 @@ function GLTFSectionComponent({
 
         {/* 액션 버튼들 */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="p-1 h-6 w-6"
-                onClick={() => onCopy(nodeInfo)}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>섹션 복사</TooltipContent>
-          </Tooltip>
-
           {nodeInfo.depth > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -322,7 +298,6 @@ function GLTFSectionComponent({
               expandedNodes={expandedNodes}
               onToggle={onToggle}
               onSelect={onSelect}
-              onCopy={onCopy}
               onDelete={onDelete}
               clipboard={clipboard}
               side={side}

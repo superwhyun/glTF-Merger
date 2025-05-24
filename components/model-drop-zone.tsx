@@ -31,20 +31,20 @@ export function ModelDropZone({ onModelLoaded }: ModelDropZoneProps) {
         // 파일 URL 생성
         const url = URL.createObjectURL(file)
 
-        // 파일 구조 파싱
-        console.log("파일 구조 파싱 중...")
-        const structure = await parseGLTF(file)
-        console.log("파일 구조 파싱 완료")
+        // 파일 구조 파싱 --> Legacy Code ... 현재 안 쓰임..
+        // console.log("파일 구조 파싱 중...")
+        // const structure = await parseGLTF(file)
+        // console.log("파일 구조 파싱 완료")
 
         // 모델에 애니메이션이 있는지 확인
-        const hasAnimations = structure.animations && Object.keys(structure.animations).length > 0
-        console.log(`애니메이션 ${hasAnimations ? "발견" : "없음"}`)
+        // const hasAnimations = structure.animations && Object.keys(structure.animations).length > 0
+        // console.log(`애니메이션 ${hasAnimations ? "발견" : "없음"}`)
 
-        if (hasAnimations) {
-          console.log("애니메이션 목록:", Object.keys(structure.animations))
-        }
+        // if (hasAnimations) {
+        //   console.log("애니메이션 목록:", Object.keys(structure.animations))
+        // }
 
-        onModelLoaded(file, structure, url, null)
+        onModelLoaded(file, null, url, null)
       } catch (error) {
         console.error("모델 로딩 오류:", error)
         onModelLoaded(file, null, null, error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.")

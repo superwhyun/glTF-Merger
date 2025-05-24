@@ -81,11 +81,25 @@ export async function loadVRMAAnimation(file: File): Promise<any> {
               }
 
               console.log("✅ VRM 애니메이션 로드 성공:", vrmAnimation)
-              console.log("애니메이션 정보:", {
+              console.log("원본 VRM 애니메이션 정보:", {
                 name: vrmAnimation.name,
                 duration: vrmAnimation.duration,
-                tracks: vrmAnimation.tracks?.length || 0
+                tracks: vrmAnimation.tracks?.length || 0,
+                // VRM 애니메이션 고유 속성들 체크
+                restPose: vrmAnimation.restPose ? "있음" : "없음",
+                humanoid: vrmAnimation.humanoid ? "있음" : "없음"
               })
+              
+              // 첫 번째 트랙 상세 정보
+              if (vrmAnimation.tracks && vrmAnimation.tracks.length > 0) {
+                const firstTrack = vrmAnimation.tracks[0]
+                console.log("첫 번째 트랙 상세:", {
+                  name: firstTrack.name || "이름없음",
+                  times: firstTrack.times?.length || 0,
+                  values: firstTrack.values?.length || 0,
+                  timeRange: firstTrack.times ? [firstTrack.times[0], firstTrack.times[firstTrack.times.length - 1]] : []
+                })
+              }
               resolve(vrmAnimation)
             },
             (progress) => {
@@ -144,7 +158,17 @@ export async function createAnimationClipFromVRMA(vrmAnimation: any, vrm: VRM): 
         const clip = module.createVRMAnimationClip(vrmAnimation, vrm)
         if (clip && clip instanceof THREE.AnimationClip) {
           console.log("✅ createVRMAnimationClip으로 성공!")
-          console.log("생성된 클립:", { name: clip.name, duration: clip.duration, tracks: clip.tracks.length })
+          console.log("VRM→Three.js 변환 검증:", { 
+            name: clip.name, 
+            duration: clip.duration, 
+            tracks: clip.tracks.length,
+            firstTrackData: clip.tracks[0] ? {
+              name: clip.tracks[0].name,
+              times: clip.tracks[0].times?.length || 0,
+              values: clip.tracks[0].values?.length || 0,
+              actualDuration: clip.tracks[0].times ? clip.tracks[0].times[clip.tracks[0].times.length - 1] : 0
+            } : null
+          })
           return clip
         }
       } catch (e) {
